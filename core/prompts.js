@@ -302,7 +302,7 @@ export const PROMPT_FIELDS = [
   {
     key: 'dream',
     label: '梦中梦',
-    hint: '弥彦本人的人格与口吻。梦中梦页面的每一句回答都按这个来。',
+    hint: '弥彦本人的人格与口吻。写 {{user_last_input}} 可以把客人这句话插到指定位置；不写就自动追加在末尾。',
     rows: 12,
   },
 ];

@@ -154,7 +154,10 @@ const {
   extractSummary,
 } = await import('../core/parse.js');
 const { normalizeUrl, buildRequestBody } = await import('../core/api.js');
-const settingsMod = await import('../core/settings.js');
+// 必须用带版本号的 URL 导入，否则跟 engine 内部引用的是两个模块实例，
+// 改 settings 里的值不会影响 engine 读到的 cache
+const { VERSION: V0 } = await import('../core/version.js');
+const settingsMod = await import(`../core/settings.js?v=${V0}`);
 const engine = await import('../core/engine.js');
 const importer = await import('../core/import.js');
 const toolsMod = await import('../core/tools.js');
@@ -433,6 +436,17 @@ const taskMsg = dmMsgs.find(
 ok('任务段存在且是 system', !!taskMsg);
 ok('任务段含弥彦人格', String(taskMsg?.content || '').includes('铺子'));
 ok('前四段与走向同源（内核+认领+资料）', dmMsgs[0].role === 'system' && dmMsgs[1].role === 'assistant' && dmMsgs[2].role === 'system');
+
+// 占位符：写了就替换到指定位置，不再末尾追加
+const origDream = s.prompts.dream;
+s.prompts.dream = '第五层插槽。你是铺子里的弥彦。客人说：{{user_last_input}}　请据此回答。';
+globalThis.__dreamCall = 0;
+await engine.runDream('这是测试输入');
+const allDream = (lastRequestBody.messages || []).map((m) => String(m.content || '')).join('\n');
+ok('占位符被替换成实际输入', allDream.includes('这是测试输入'));
+ok('替换后不再追加【客人刚说】', !allDream.includes('【客人刚说】'));
+ok('占位符本身不残留', !allDream.includes('{{user_last_input}}'));
+s.prompts.dream = origDream;
 
 const dreamMsgs = engine.getDream().messages;
 const lastSay = dreamMsgs[dreamMsgs.length - 1]?.text || '';

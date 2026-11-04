@@ -9,12 +9,12 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.4.1';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.4.1';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.4.1';
-import { buildTool, readToolArgs } from './tools.js?v=2.4.1';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.4.1';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.4.1';
+import { completeWithRetry } from './api.js?v=2.4.2';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.4.2';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.4.2';
+import { buildTool, readToolArgs } from './tools.js?v=2.4.2';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.4.2';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.4.2';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -902,11 +902,19 @@ export async function runDream(input) {
       .map((m) => (m.role === 'user' ? '客人：' : '弥彦：') + m.text)
       .join('\n');
 
-    const taskText =
-      getPrompt('dream', settings) +
-      (historyText ? '\n\n【你们刚才的对话】\n' + historyText : '') +
-      '\n\n【客人刚说】\n' +
-      text;
+    // 第五层插槽。如果提示词里写了 {{user_last_input}}，就把客人这句话替换进去；
+    // 没写就自动追加在末尾。这样提示词可以自己决定输入放在哪一段。
+    const PH_TEST = /\{\{\s*(?:user_last_input|lastMessage|input)\s*\}\}/i;
+    const PH_REPLACE = /\{\{\s*(?:user_last_input|lastMessage|input)\s*\}\}/gi;
+
+    let taskText = getPrompt('dream', settings);
+    if (PH_TEST.test(taskText)) {
+      taskText = taskText.replace(PH_REPLACE, () => text);
+    } else {
+      taskText += '\n\n【客人刚说】\n' + text;
+    }
+
+    if (historyText) taskText = '【你们刚才的对话】\n' + historyText + '\n\n' + taskText;
 
     const baseMessages = assembleMessages(settings, material, taskText);
     const reqOpts = {
