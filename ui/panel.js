@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.8.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.9.0';
 import {
   cancel,
   clearHistory,
@@ -22,13 +22,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.8.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.8.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.8.0';
-import { parsePreset } from '../core/import.js?v=2.8.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.8.0';
-import { testChannel } from '../core/api.js?v=2.8.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.8.0';
+} from '../core/engine.js?v=2.9.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.9.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.9.0';
+import { parsePreset } from '../core/import.js?v=2.9.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.9.0';
+import { testChannel } from '../core/api.js?v=2.9.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.9.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -269,6 +269,37 @@ export function createPanel(shadow) {
   }
 
   function renderChoices(state) {
+    const mode = getSettings().panel?.choiceMode || 'choices';
+    const isMoves = mode === 'moves';
+
+    bodyEl.appendChild(
+      h('div', { class: 'seg small' }, [
+        h('button', {
+          class: isMoves ? '' : 'on',
+          text: '走向',
+          onclick: () => {
+            patchSettings({ panel: { ...getSettings().panel, choiceMode: 'choices' } });
+            render(getState());
+          },
+        }),
+        h('button', {
+          class: isMoves ? 'on' : '',
+          text: '反派行动',
+          onclick: () => {
+            patchSettings({ panel: { ...getSettings().panel, choiceMode: 'moves' } });
+            const has = (getState().result?.moves || []).length;
+            if (!has) void run({ manual: true, tasks: ['moves'] });
+            else render(getState());
+          },
+        }),
+      ]),
+    );
+
+    if (isMoves) {
+      renderMoves(state);
+      return;
+    }
+
     const list = state.result?.choices || [];
 
     if (!list.length) {
@@ -345,6 +376,50 @@ export function createPanel(shadow) {
       ]),
     );
     return wrap;
+  }
+
+  /** 走向页的第二个模式：有人要动手了 */
+  function renderMoves(state) {
+    const list = state.result?.moves || [];
+    const note = state.result?.notes?.moves || '';
+
+    if (!list.length) {
+      bodyEl.appendChild(
+        emptyWithNote(state, note, 'moves', {
+          running: '在想要谁动手……',
+          empty: '模型没给出可用的行动',
+          idle: '还没有反派行动',
+        }),
+      );
+      return;
+    }
+
+    for (const m of list) {
+      bodyEl.appendChild(
+        h(
+          'button',
+          {
+            class: 'move',
+            title: '单击填入输入框，Ctrl+单击直接发送',
+            onclick: (e) => {
+              const send = e.ctrlKey || e.metaKey;
+              fillInput(`${m.who}：${m.act}`, send);
+              setStatus(send ? '已发送' : '已填入，改完发出去');
+            },
+          },
+          [
+            h('div', { class: 'move-head' }, [
+              h('span', { class: 'move-n', text: String(m.n) }),
+              h('span', { class: 'move-who', text: m.who || '某人' }),
+              m.risk ? h('span', { class: `chip risk-${m.risk}`, text: '暴露 ' + m.risk }) : null,
+            ]),
+            h('div', { class: 'move-act', text: m.act }),
+            m.gain ? h('div', { class: 'move-line', text: '得利：' + m.gain }) : null,
+            m.cost ? h('div', { class: 'move-line', text: '代价：' + m.cost }) : null,
+          ],
+        ),
+      );
+    }
   }
 
   function renderDanmaku(state) {
@@ -587,7 +662,6 @@ export function createPanel(shadow) {
 
     const outline = story.outline || [];
     const steps = story.steps || [];
-    const moves = story.moves || [];
 
     if (!outline.length) {
       storyBody.appendChild(
@@ -647,12 +721,6 @@ export function createPanel(shadow) {
         }),
         h('button', {
           class: 'mini-btn',
-          text: moves.length ? '换一批' : '反派行动',
-          disabled: running,
-          onclick: () => runStory('moves', { count: 4 }),
-        }),
-        h('button', {
-          class: 'mini-btn',
           text: '清空',
           onclick: () => {
             clearStory();
@@ -688,35 +756,6 @@ export function createPanel(shadow) {
       }
     }
 
-    if (moves.length) {
-      storyBody.appendChild(h('div', { class: 'section-label', text: '反派行动 · 有人要动手了' }));
-      for (const m of moves) {
-        storyBody.appendChild(
-          h(
-            'button',
-            {
-              class: 'move',
-              title: '单击填入输入框，Ctrl+单击直接发送',
-              onclick: (e) => {
-                const send = e.ctrlKey || e.metaKey;
-                fillInput(`${m.who}：${m.act}`, send);
-                setStatus(send ? '已发送' : '已填入，改完发出去');
-              },
-            },
-            [
-              h('div', { class: 'move-head' }, [
-                h('span', { class: 'move-n', text: String(m.n) }),
-                h('span', { class: 'move-who', text: m.who || '某人' }),
-                m.risk ? h('span', { class: `chip risk-${m.risk}`, text: '暴露 ' + m.risk }) : null,
-              ]),
-              h('div', { class: 'move-act', text: m.act }),
-              m.gain ? h('div', { class: 'move-line', text: '得利：' + m.gain }) : null,
-              m.cost ? h('div', { class: 'move-line', text: '代价：' + m.cost }) : null,
-            ],
-          ),
-        );
-      }
-    }
   }
 
   function renderHistory(state) {

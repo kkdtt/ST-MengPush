@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.8.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.8.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.8.0';
-import { attachResult } from './inspect.js?v=2.8.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.8.0';
-import { buildBeats, buildChoices, buildDanmaku, buildMoves, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.8.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.8.0';
+import { completeWithRetry } from './api.js?v=2.9.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.9.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.9.0';
+import { attachResult } from './inspect.js?v=2.9.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.9.0';
+import { buildBeats, buildChoices, buildDanmaku, buildMoves, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.9.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.9.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -205,6 +205,7 @@ export async function run(opts = {}) {
     choices: Array.isArray(prev.choices) ? prev.choices : [],
     danmaku: Array.isArray(prev.danmaku) ? prev.danmaku : [],
     beats: Array.isArray(prev.beats) ? prev.beats : [],
+    moves: Array.isArray(prev.moves) ? prev.moves : [],
     notes: { ...(prev.notes || {}) },
     at: Date.now(),
     messageId: ctx.lastBodyId,
@@ -287,6 +288,32 @@ export async function run(opts = {}) {
       } else {
         result.notes.danmaku = 'skipped';
       }
+    }
+
+    /* ---- 反派行动（走向页的另一个模式，与走向互斥） ---- */
+    if (tasks.includes('moves') && !abort.signal.aborted) {
+      jobs.push(
+        (async () => {
+          emit({ stage: '有人要动手了' });
+          try {
+            const res = await callTask(
+              ch,
+              'moves',
+              assembleMessages(settings, material, buildMoves(settings, { count: 4 })),
+              { signal: abort.signal, retries: 0, stream: false },
+              settings,
+            );
+            result.moves = parseMoves(res.args || res.content);
+            result.notes.moves = result.moves.length ? '' : 'empty';
+          } catch (e) {
+            result.moves = [];
+            result.notes.moves = 'error:' + (e?.message || e);
+            console.warn('[推进台] 反派行动生成失败', e);
+          } finally {
+            emit({ result: { ...result }, stage: '' });
+          }
+        })(),
+      );
     }
 
     if (tasks.includes('beats') && !abort.signal.aborted) {
