@@ -13,9 +13,11 @@ import {
   isRunning,
   loadHistory,
   run,
+  runOne,
   subscribe,
 } from '../core/engine.js';
 import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js';
 import { testChannel } from '../core/api.js';
 import { clear, h, icon, makeDraggable } from './host.js';
 
@@ -245,13 +247,11 @@ export function createPanel(shadow) {
 
     if (!list.length) {
       bodyEl.appendChild(
-        h('div', { class: 'empty' }, [
-          state.status === 'running' ? '正在想下一步……' : '这一轮还没有走向',
-          h('span', {
-            class: 'hint',
-            text: state.status === 'running' ? '' : '等正文写完会自动出，也可以点右下角「重跑」',
-          }),
-        ]),
+        emptyWithNote(state, state.result?.notes?.choices || '', 'choices', {
+          running: '正在想下一步……',
+          empty: '模型没给出可用的走向',
+          idle: '这一轮还没有走向',
+        }),
       );
       return;
     }
@@ -286,22 +286,63 @@ export function createPanel(shadow) {
     });
   }
 
-  function renderDanmaku(state) {
-    const list = state.result?.danmaku || [];
+  /**
+   * 空态。关键是要说清楚「为什么空」——
+   * 上一版把失败静默吞掉，面板上什么都不显示，用户根本分不清是没触发还是请求挂了。
+   */
+  function emptyWithNote(state, note, task, texts) {
+    const wrap = h('div', { class: 'empty' });
 
-    if (!list.length) {
-      bodyEl.appendChild(
-        h('div', { class: 'empty' }, [
-          state.status === 'running' ? '在看要不要刷……' : '这一场没什么好起哄的',
-          h('span', { class: 'hint', text: '翻车、嘴硬被抓包、突然升温、离谱发言，才会有人说话' }),
+    if (state.status === 'running') {
+      wrap.appendChild(document.createTextNode(texts.running || '生成中……'));
+      return wrap;
+    }
+
+    if (note.startsWith('error:')) {
+      wrap.appendChild(h('div', { class: 'error-box', text: note.slice(6) }));
+      wrap.appendChild(
+        h('div', { class: 'note-row' }, [
+          h('button', { class: 'mini-btn', text: '重试', onclick: () => runOne(task) }),
         ]),
       );
+      return wrap;
+    }
+
+    wrap.appendChild(document.createTextNode(texts[note] || texts.idle || '还没有内容'));
+    if (note === 'skipped') {
+      const pct = Math.round((getSettings().danmakuChance ?? 0.4) * 100);
+      wrap.appendChild(h('span', { class: 'hint', text: `自动模式下按 ${pct}% 概率触发，也可以直接点下面生成` }));
+    }
+    wrap.appendChild(
+      h('div', { class: 'note-row' }, [
+        h('button', { class: 'mini-btn', text: '生成', onclick: () => runOne(task) }),
+      ]),
+    );
+    return wrap;
+  }
+
+  function renderDanmaku(state) {
+    const list = state.result?.danmaku || [];
+    const note = state.result?.notes?.danmaku || '';
+
+    if (!list.length) {
+      bodyEl.appendChild(emptyWithNote(state, note, 'danmaku', {
+        running: '在看要不要刷……',
+        skipped: '这一轮没掷中',
+        empty: '模型判定这一场没什么可起哄的',
+        idle: '这一场还没有弹幕',
+      }));
       return;
     }
 
     bodyEl.appendChild(h('div', { class: 'section-label', text: '场外' }));
     bodyEl.appendChild(
       h('div', { class: 'danmaku-wrap' }, list.map((d) => h('span', { class: 'danmaku', text: d }))),
+    );
+    bodyEl.appendChild(
+      h('div', { class: 'note-row' }, [
+        h('button', { class: 'mini-btn', text: '重刷', onclick: () => runOne('danmaku') }),
+      ]),
     );
   }
 
@@ -310,10 +351,11 @@ export function createPanel(shadow) {
 
     if (!list.length) {
       bodyEl.appendChild(
-        h('div', { class: 'empty' }, [
-          '还没有节拍表',
-          h('span', { class: 'hint', text: '亲密戏之前点右下角「节拍」，出一份分镜骨架给执笔人' }),
-        ]),
+        emptyWithNote(state, state.result?.notes?.beats || '', 'beats', {
+          running: '在排节拍……',
+          empty: '模型没给出可用的节拍',
+          idle: '还没有节拍表',
+        }),
       );
       return;
     }
@@ -531,9 +573,16 @@ export function createPanel(shadow) {
     );
     box.appendChild(g4);
 
+    /* --- 提示词 --- */
+    const g5 = h('div', { class: 'set-group' }, [h('h4', { text: '提示词' })]);
+    for (const field of PROMPT_FIELDS) {
+      g5.appendChild(promptEditor(field));
+    }
+    box.appendChild(g5);
+
     /* --- 关于 --- */
-    const g5 = h('div', { class: 'set-group' }, [h('h4', { text: '关于' })]);
-    g5.appendChild(
+    const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '关于' })]);
+    g6.appendChild(
       h('div', {
         class: 'empty',
         style: { padding: '4px 0', textAlign: 'left', lineHeight: '1.9' },
@@ -543,7 +592,52 @@ export function createPanel(shadow) {
           '单击卡片填入输入框，Ctrl+单击直接发送。',
       }),
     );
-    box.appendChild(g5);
+    box.appendChild(g6);
+  }
+
+  /** 单个提示词编辑器。空串 = 用默认，所以「恢复默认」就是把它清空。 */
+  function promptEditor(field) {
+    const customized = isCustomized(field.key, getSettings());
+
+    const mark = h('span', {
+      class: 'prompt-flag' + (customized ? ' on' : ''),
+      text: customized ? '已修改' : '默认',
+    });
+
+    const ta = h('textarea', {
+      class: 'prompt-input',
+      rows: String(field.rows || 10),
+      spellcheck: 'false',
+      oninput: (e) => {
+        const prompts = { ...getSettings().prompts, [field.key]: e.target.value };
+        patchSettings({ prompts });
+        mark.textContent = e.target.value.trim() ? '已修改' : '默认';
+        mark.className = 'prompt-flag' + (e.target.value.trim() ? ' on' : '');
+      },
+    });
+    ta.value = getPrompt(field.key, getSettings());
+
+    const reset = h('button', {
+      class: 'mini-btn',
+      text: '恢复默认',
+      onclick: () => {
+        const prompts = { ...getSettings().prompts, [field.key]: '' };
+        patchSettings({ prompts });
+        ta.value = getDefault(field.key);
+        mark.textContent = '默认';
+        mark.className = 'prompt-flag';
+      },
+    });
+
+    return h('div', { class: 'prompt-block' }, [
+      h('div', { class: 'prompt-head' }, [
+        h('span', { class: 'prompt-title', text: field.label }),
+        mark,
+        reset,
+      ]),
+      h('div', { class: 'prompt-hint', text: field.hint }),
+      ta,
+    ]);
   }
 
   function switchRow(label, checked, onChange) {

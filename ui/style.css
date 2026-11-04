@@ -753,3 +753,83 @@ textarea {
   margin: 14px 0;
   background: var(--line);
 }
+
+/* ---------------- 提示词编辑 ---------------- */
+
+.note-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+  justify-content: center;
+}
+
+.prompt-block {
+  margin-bottom: 14px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.prompt-block:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.prompt-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+.prompt-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.prompt-flag {
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--fg-faint);
+}
+.prompt-flag.on {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent-2);
+}
+.prompt-head .mini-btn {
+  margin-left: auto;
+  padding: 1px 7px;
+  font-size: 10px;
+}
+
+.prompt-hint {
+  margin-bottom: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-faint);
+}
+
+.prompt-input {
+  width: 100%;
+  min-height: 110px;
+  max-height: 340px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--fg);
+  font-family: 'Cascadia Code', 'Consolas', 'Menlo', monospace;
+  font-size: 11.5px;
+  line-height: 1.72;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.prompt-input:focus {
+  border-color: var(--line-strong);
+}
+.prompt-input::placeholder {
+  color: var(--fg-faint);
+  opacity: 0.7;
+}

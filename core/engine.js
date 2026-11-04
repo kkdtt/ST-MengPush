@@ -12,7 +12,7 @@
 import { completeWithRetry } from './api.js';
 import { readChatMeta, writeChatMeta } from './ctx.js';
 import { buildSnapshot, collectContext, parseJSON } from './parse.js';
-import { KERNEL, promptBeats, promptChoices, promptDanmaku } from './prompts.js';
+import { buildBeats, buildChoices, buildDanmaku, getKernel } from './prompts.js';
 import { channelFor, channelReady, get as getSettings } from './settings.js';
 
 const CACHE_KEY = 'meng_push_cache';
@@ -101,7 +101,7 @@ let running = false;
 /**
  * 跑一轮。
  * @param {{tasks?: string[], manual?: boolean}} opts
- *   tasks 默认按设置里的开关来；manual=true 时至少会跑选项。
+ *   tasks 不传时按设置里的开关走；传了就只跑这几项，其余保留上次的结果。
  */
 export async function run(opts = {}) {
   const settings = getSettings();
@@ -111,10 +111,19 @@ export async function run(opts = {}) {
   }
 
   const ctx = collectContext(settings);
-  const tasks = (opts.tasks || ['choices', 'danmaku', 'beats']).filter((t) => {
-    if (t === 'choices') return true; // 选项永远跑
-    return opts.manual ? settings.modules[t] || t === 'beats' : settings.modules[t];
-  });
+
+  // 只重刷某一项时，其余项保留上一次的结果，不要清空
+  const prev = getCached(ctx.lastBodyId) || {};
+  const result = {
+    choices: Array.isArray(prev.choices) ? prev.choices : [],
+    danmaku: Array.isArray(prev.danmaku) ? prev.danmaku : [],
+    beats: Array.isArray(prev.beats) ? prev.beats : [],
+    notes: { ...(prev.notes || {}) },
+    at: Date.now(),
+    messageId: ctx.lastBodyId,
+  };
+
+  const tasks = opts.tasks ? opts.tasks.slice() : ['choices', 'danmaku', 'beats'].filter((t) => settings.modules[t]);
 
   const ch = channelFor('choices');
   if (!channelReady(ch)) {
@@ -122,37 +131,41 @@ export async function run(opts = {}) {
     return;
   }
 
-  // 打断上一轮
   currentAbort?.abort();
   const abort = new AbortController();
   currentAbort = abort;
   running = true;
 
-  emit({ status: 'running', stage: '整理上下文', error: '', result: null });
+  emit({ status: 'running', stage: '整理上下文', error: '', result: { ...result } });
 
   const snapshot = buildSnapshot(ctx, settings);
   const base = snapshot + '\n\n---\n\n';
-  const result = { choices: [], danmaku: [], beats: [], at: Date.now(), messageId: ctx.lastBodyId };
+  const kernel = getKernel(settings);
 
   try {
-    /* ---- 选项：先跑，先出 ---- */
+    /* ---- 走向 ---- */
     if (tasks.includes('choices')) {
-      emit({ stage: '出选项' });
-      const text = await completeWithRetry(
-        ch,
-        [
-          { role: 'system', content: KERNEL },
-          { role: 'user', content: base + promptChoices(settings.choiceCount) },
-        ],
-        { signal: abort.signal, retries: settings.retries, stream: false },
-      );
-      result.choices = normalizeChoices(parseJSON(text), settings.choiceCount);
-      emit({ result: { ...result }, stage: result.choices.length ? '选项好了' : '这轮没出选项' });
+      emit({ stage: '出走向' });
+      try {
+        const text = await completeWithRetry(
+          ch,
+          [
+            { role: 'system', content: kernel },
+            { role: 'user', content: base + buildChoices(settings) },
+          ],
+          { signal: abort.signal, retries: settings.retries, stream: false },
+        );
+        result.choices = parseChoices(text, settings.choiceCount);
+        result.notes.choices = result.choices.length ? '' : 'empty';
+      } catch (e) {
+        result.notes.choices = 'error:' + (e?.message || e);
+        throw e;
+      }
+      emit({ result: { ...result }, stage: '' });
     }
 
-    /* ---- 弹幕：按概率，不阻塞选项 ---- */
+    /* ---- 弹幕 ---- */
     if (tasks.includes('danmaku') && !abort.signal.aborted) {
-      // 手动触发时无条件跑一次；自动模式下按概率掷骰
       const shouldRun = opts.manual || Math.random() < (settings.danmakuChance ?? 0.4);
       if (shouldRun) {
         emit({ stage: '看要不要刷弹幕' });
@@ -161,42 +174,45 @@ export async function run(opts = {}) {
           const text = await completeWithRetry(
             dmCh,
             [
-              { role: 'system', content: KERNEL },
-              { role: 'user', content: base + promptDanmaku() },
+              { role: 'system', content: kernel },
+              { role: 'user', content: base + buildDanmaku(settings) },
             ],
             { signal: abort.signal, retries: 0, stream: false },
           );
-          const j = parseJSON(text);
-          result.danmaku = Array.isArray(j?.danmaku)
-            ? j.danmaku.filter(Boolean).slice(0, 6).map((s) => String(s).trim())
-            : [];
-          emit({ result: { ...result }, stage: '' });
+          result.danmaku = parseDanmaku(text);
+          result.notes.danmaku = result.danmaku.length ? '' : 'empty';
         } catch (e) {
-          // 弹幕失败不影响主流程，静默降级
+          result.danmaku = [];
+          result.notes.danmaku = 'error:' + (e?.message || e);
           console.warn('[推进台] 弹幕生成失败', e);
         }
+        emit({ result: { ...result }, stage: '' });
+      } else {
+        result.notes.danmaku = 'skipped';
+        emit({ result: { ...result }, stage: '' });
       }
     }
 
-    /* ---- 节拍表：只在手动时跑 ---- */
-    if (tasks.includes('beats') && opts.manual && !abort.signal.aborted) {
+    /* ---- 节拍表 ---- */
+    if (tasks.includes('beats') && !abort.signal.aborted) {
       emit({ stage: '排节拍' });
       try {
         const btCh = channelFor('beats') || ch;
         const text = await completeWithRetry(
           btCh,
           [
-            { role: 'system', content: KERNEL },
-            { role: 'user', content: base + promptBeats() },
+            { role: 'system', content: kernel },
+            { role: 'user', content: base + buildBeats(settings) },
           ],
           { signal: abort.signal, retries: 0, stream: false },
         );
-        const j = parseJSON(text);
-        result.beats = Array.isArray(j?.beats) ? j.beats.slice(0, 16) : [];
-        emit({ result: { ...result }, stage: '' });
+        result.beats = parseBeats(text);
+        result.notes.beats = result.beats.length ? '' : 'empty';
       } catch (e) {
+        result.notes.beats = 'error:' + (e?.message || e);
         console.warn('[推进台] 节拍表生成失败', e);
       }
+      emit({ result: { ...result }, stage: '' });
     }
 
     if (result.messageId >= 0) saveResult(result.messageId, result);
@@ -222,25 +238,180 @@ export function isRunning() {
   return running;
 }
 
+/**
+ * 直接跑一项，不改动其他项。面板上的「重刷弹幕」「排节拍」都走这里。
+ */
+export function runOne(task) {
+  return run({ manual: true, tasks: [task] });
+}
+
 /* ---------------- 结果规整 ---------------- */
+
+/**
+ * 解析弹幕。模型不一定老实给 JSON，所以三级兜底：
+ *   1. 标准 {"danmaku":[...]}
+ *   2. 裸数组 [...]
+ *   3. 按行抠——去掉编号、引号、项目符号，留下像弹幕的短句
+ */
+export function parseDanmaku(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+
+  // ① <dm>…</dm>，逐条闭合，截断不影响已闭合的部分
+  const out = [];
+  const re = /<dm\b[^>]*>([\s\S]*?)<\/dm>/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const s = m[1].replace(/\s+/g, ' ').trim();
+    if (s) out.push(s);
+  }
+  if (out.length) return cleanList(out);
+
+  // ② 标准 {"danmaku":[...]}
+  const j = parseJSON(raw);
+  if (j && Array.isArray(j.danmaku)) return cleanList(j.danmaku);
+
+  // ③ 裸数组 [...]
+  const arr = /^\s*\[[\s\S]*\]\s*$/.exec(raw);
+  if (arr) {
+    try {
+      const parsed = JSON.parse(arr[0]);
+      if (Array.isArray(parsed)) return cleanList(parsed);
+    } catch {
+      /* 落到按行抠 */
+    }
+  }
+
+  // ④ 按行抠——去掉编号、引号、项目符号，留下像弹幕的短句
+  const lines = raw
+    .split(/\r?\n/)
+    .map((s) =>
+      s
+        .replace(/^\s*(?:[-*•·]|\d+[.、)）])\s*/, '')
+        .replace(/^["'「『]|["'」』,，。]$/g, '')
+        .trim(),
+    )
+    .filter((s) => s.length >= 2 && s.length <= 30 && !/[{}[\]<>]/.test(s) && !/^(danmaku|json)$/i.test(s));
+
+  return cleanList(lines);
+}
+
+function cleanList(list) {
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const s = String(item ?? '')
+      .replace(/^["'「『]|["'」』]$/g, '')
+      .trim();
+    if (!s || s.length > 40 || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+/** 解析节拍表。字段缺失时给空串，前端按空处理。 */
+export function parseBeats(text) {
+  const raw = String(text || '');
+  const out = [];
+
+  // ① <beat phase="前戏" n="1"> action: … react: … friction: … </beat>
+  const re = /<beat\b([^>]*)>([\s\S]*?)<\/beat>/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const attrs = parseAttrs(m[1]);
+    const body = m[2];
+    const field = (name) => {
+      const hit = new RegExp(name + '\\s*[:：]\\s*([^\\n]+)', 'i').exec(body);
+      return hit ? hit[1].trim() : '';
+    };
+    const action = field('action') || body.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!action) continue;
+    out.push({
+      phase: attrs.phase || '',
+      n: Number(attrs.n) || out.length + 1,
+      action,
+      react: field('react'),
+      friction: field('friction'),
+    });
+    if (out.length >= 16) break;
+  }
+  if (out.length) return out;
+
+  // ② JSON 兜底
+  const j = parseJSON(raw);
+  const arr = Array.isArray(j?.beats) ? j.beats : [];
+  for (const b of arr) {
+    if (!b) continue;
+    const action = String(b.action ?? '').trim();
+    if (!action) continue;
+    out.push({
+      phase: String(b.phase ?? '').trim(),
+      n: Number.isFinite(Number(b.n)) ? Number(b.n) : out.length + 1,
+      action,
+      react: String(b.react ?? '').trim(),
+      friction: String(b.friction ?? '').trim(),
+    });
+    if (out.length >= 16) break;
+  }
+  return out;
+}
 
 const TYPES = ['顺承', '横向', '升温', '切场', '破局', '退让'];
 const RISKS = ['低', '中', '高'];
 
-function normalizeChoices(parsed, limit) {
-  const arr = Array.isArray(parsed?.choices) ? parsed.choices : [];
+/** 解析标签属性：type="顺承" risk="低" */
+function parseAttrs(s) {
+  const out = {};
+  const re = /([\w-]+)\s*=\s*"([^"]*)"|([\w-]+)\s*=\s*'([^']*)'/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    if (m[1]) out[m[1]] = m[2];
+    else if (m[3]) out[m[3]] = m[4];
+  }
+  return out;
+}
+
+/**
+ * 解析走向。优先读 <option> 标签，读不到再退回 JSON。
+ *
+ * 为什么用标签而不是 JSON：标签逐条闭合，流式生成时每收一个 </option>
+ * 就能解析出一条，后面被截断也不影响前面已经拿到的。JSON 是整体结构，
+ * 截断一个字符就全废——这就是「抗截断」的全部意义。
+ */
+export function parseChoices(text, limit) {
+  const raw = String(text || '');
   const out = [];
 
-  for (const c of arr) {
-    if (!c) continue;
-    const text = String(c.text ?? c.content ?? '').trim();
-    if (!text) continue;
+  const re = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const attrs = parseAttrs(m[1]);
+    const body = m[2].replace(/\s+/g, ' ').trim();
+    if (!body) continue;
     out.push({
-      type: TYPES.includes(String(c.type)) ? String(c.type) : '顺承',
-      text: text.slice(0, 60),
-      risk: RISKS.includes(String(c.risk)) ? String(c.risk) : '中',
+      type: TYPES.includes(attrs.type) ? attrs.type : '顺承',
+      text: body.slice(0, 60),
+      risk: RISKS.includes(attrs.risk) ? attrs.risk : '中',
     });
     if (out.length >= limit) break;
+  }
+
+  if (!out.length) {
+    const j = parseJSON(raw);
+    const arr = Array.isArray(j?.choices) ? j.choices : [];
+    for (const c of arr) {
+      if (!c) continue;
+      const body = String(c.text ?? c.content ?? '').trim();
+      if (!body) continue;
+      out.push({
+        type: TYPES.includes(String(c.type)) ? String(c.type) : '顺承',
+        text: body.slice(0, 60),
+        risk: RISKS.includes(String(c.risk)) ? String(c.risk) : '中',
+      });
+      if (out.length >= limit) break;
+    }
   }
 
   // 模型没给够时，把「退让」补上——这一类最容易被漏，但它是唯一的出口

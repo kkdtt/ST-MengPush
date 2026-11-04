@@ -24,6 +24,9 @@ export function defaults() {
     choiceCount: 5,
     danmakuChance: 0.4,
 
+    /** 自定义提示词：空串表示用内置默认。key 见 prompts.js 的 PROMPT_FIELDS。 */
+    prompts: { kernel: '', choices: '', danmaku: '', beats: '' },
+
     /** 上下文预算 */
     summaryDepth: 3,
     tailChars: 1400,

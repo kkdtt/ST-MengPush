@@ -156,6 +156,39 @@ eq('密钥走 proxy_password', rb.proxy_password, 'sk-test');
 eq('声明不用工具', rb.tool_choice, 'none');
 eq('非流式', rb.stream, false);
 
+console.log('\n— 标签解析（抗截断）—');
+
+const xmlChoices = `<option type="顺承" risk="低">把咖啡递过去一罐</option>
+<option type="破局" risk="高">「你等我，还是等这罐咖啡。」</option>
+<option type="升温" risk="中">把外套脱下来搭在她肩上</option>`;
+
+const c3 = engine.parseChoices(xmlChoices, 3);
+eq('<option> 解析出三条', c3.length, 3);
+eq('属性 type 生效', c3[1].type, '破局');
+eq('属性 risk 生效', c3[1].risk, '高');
+eq('标签正文进 text', c3[0].text, '把咖啡递过去一罐');
+
+// 模拟截断：最后一条只有开标签，没有闭合
+const cut = xmlChoices + '\n<option type="切场" risk="低">切到二十分钟后，两个人坐在';
+eq('截断时保住已闭合的三条', engine.parseChoices(cut, 3).length, 3);
+ok('截断的残条不会混进来', !engine.parseChoices(cut, 3).some((c) => c.text.includes('二十分钟后')));
+
+eq('JSON 仍能兜底', engine.parseChoices('{"choices":[{"type":"破局","text":"问她","risk":"高"}]}', 5)[0].type, '破局');
+
+eq('<dm> 解析', engine.parseDanmaku('<dm>嘴上说冻的</dm>\n<dm>这拉链是故意的吧</dm>').length, 2);
+eq('dm 截断保住前面', engine.parseDanmaku('<dm>一</dm>\n<dm>二</dm>\n<dm>三').length, 2);
+eq('dm 空输入返回空', engine.parseDanmaku('').length, 0);
+eq('dm 不把 JSON 残片当弹幕', engine.parseDanmaku('{"danmaku":["笑死"]}').length, 1);
+
+const bs = engine.parseBeats(`<beat phase="前戏" n="1">
+action: 她背对着门，钥匙插了两次没进去
+react: 手停住，没回头
+friction: 楼道里有人上下楼
+</beat>`);
+eq('<beat> 解析', bs.length, 1);
+eq('beat action 字段', bs[0].action, '她背对着门，钥匙插了两次没进去');
+eq('beat friction 字段', bs[0].friction, '楼道里有人上下楼');
+
 console.log('\n— 端到端 —');
 let seen = null;
 engine.subscribe((st) => {

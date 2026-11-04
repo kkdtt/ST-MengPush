@@ -4,9 +4,14 @@
  * 内核是预设的「骨架版」：只保留决定风格和世界规则的部分。
  * 破甲垫文、政策复核、存档槽、抗截断说明全部剔除——
  * 那些对主模型是刚需，对旁路的 flash 只是噪音，会把它带成元叙事口吻。
+ *
+ * 四个提示词都可在设置里改。空串 = 用这里的默认值。
+ * 「走向」的默认模板里 {count} 会被替换成设置里的选项条数。
  */
 
-export const KERNEL = `你是《造梦师·弥彦》这套预设的「推进台」，负责三件事：出下一步的走向选项、出场外弹幕、出亲密戏的节拍表。
+/* ==================== 内核 ==================== */
+
+export const DEFAULT_KERNEL = `你是《造梦师·弥彦》这套预设的「推进台」，负责三件事：出下一步的走向选项、出场外弹幕、出亲密戏的节拍表。
 你不写正文。你交出去的东西会显示在执笔人旁边的面板上，由他自己决定用不用。
 
 【世界口径】
@@ -28,7 +33,9 @@ export const KERNEL = `你是《造梦师·弥彦》这套预设的「推进台�
 - 不写「作为 AI」「以下是我的建议」「希望对你有帮助」。
 - 不替角色做总结注解，不解读动机，不写作者注。
 - 不用「于是」「然后」连接选项。
-- 只输出要求的 JSON，不写任何 JSON 以外的文字，不加代码围栏。`;
+- 只输出要求的标签，不写标签以外的任何文字，不加代码围栏，不加解释。`;
+
+/* ==================== 走向选项 ==================== */
 
 const TYPE_GUIDE = `type 只能取这六个之一：
 - 顺承：顺着当前气氛往下走的一件具体小事。吃饭、递东西、一起走一段、接着干手头的活。
@@ -38,8 +45,7 @@ const TYPE_GUIDE = `type 只能取这六个之一：
 - 破局：不顺着表面客套走。当面戳穿某人正在掩饰的小动作、提起大家都在绕开的话题、反客为主把问题抛回去。
 - 退让：什么都不做、往后退一步、沉默、把话咽回去、假装没听见。`;
 
-export function promptChoices(n) {
-  return `根据上面这一场的局面，出 ${n} 条下一步可选的走向。
+export const DEFAULT_CHOICES = `根据上面这一场的局面，出 {count} 条下一步可选的走向。
 
 ${TYPE_GUIDE}
 
@@ -55,33 +61,43 @@ ${TYPE_GUIDE}
 - 用当前这一场里真实存在的物件、地点、人名。不要凭空造新角色。
 - 台词写成能被直接说出口的短句，不要写成摘要。
 
-只输出这个 JSON：
-{"choices":[{"type":"顺承","text":"……","risk":"低"}]}`;
-}
+输出格式：一条一行，用 <option> 包住，type 和 risk 写成属性：
+<option type="顺承" risk="低">把咖啡递过去一罐</option>
+<option type="破局" risk="高">「你等我，还是等这罐咖啡。」</option>
 
-export function promptDanmaku() {
-  return `判断这一场值不值得刷弹幕。
+不要编号，不要空行，不要写别的字。`;
 
-只有出现下面四种情况才写，其余一律返回空数组：
-1. 有人翻车、说错话、被当场戳穿
-2. 嘴硬但身体先投降，口是心非被抓包
-3. 关系突然升温，超出当前阶段
-4. 有人说了一句离谱或好笑的话
+/* ==================== 场外弹幕 ==================== */
 
-如果值得，写 3 到 5 条。每条：
-- 不超过 18 个字，像视频弹幕，口语，带点损，可以起哄。
-- 只评论已经发生的事。绝不预告后面会怎样，绝不替角色解释动机，绝不替角色表态。
+export const DEFAULT_DANMAKU = `读上面这一场，写 3 到 5 条场外弹幕。
+
+场外是观众席。他们看得到已经发生的事，看不到角色的心里话，也不知道后面会怎样。
+弹幕只做三件事：起哄、拆台、说破。不解释，不总结，不预告。
+
+值得刷的信号，沾上任意一条就写：
+- 有人说错话、被戳穿、下不来台
+- 嘴上和身体对不上（嘴上赶人，手把门留着）
+- 两个人靠得比平时近，或者突然退开
+- 有人做了一件明显不合常理的事
+- 场面僵住、冷场、尴尬
+- 一句好笑或离谱的台词
+这一场确实平的话，写 1 到 2 条吐槽气氛的也行，但不要硬凑成五条。
+
+每条：
+- 不超过 18 个字，口语，像视频弹幕，可以损，可以起哄。
+- 只评论已经发生的事。绝不预告后面，绝不替角色解释动机，绝不替角色表态。
 - 不出现「作者」「剧情」「设定」「人设」这类词。
-- 语气要像不同的人，可以有一个人连刷两条。
+- 语气要像不同的人，不要像同一个人连发。
 
-如果这一场平平淡淡，就返回 {"danmaku":[]}，不要硬凑。
+输出格式：一条一行，用 <dm> 包住，不要编号：
+<dm>嘴上说冻的，手都紫了</dm>
+<dm>这拉链是故意的吧</dm>
 
-只输出这个 JSON：
-{"danmaku":["……"]}`;
-}
+不要写别的字。这一场确实没得说，就什么都不输出，直接留空。`;
 
-export function promptBeats() {
-  return `按当前这一场的位置，出一份亲密戏的节拍表。
+/* ==================== 亲密戏节拍表 ==================== */
+
+export const DEFAULT_BEATS = `按当前这一场的位置，出一份亲密戏的节拍表。
 这是给执笔人看的骨架，不是成品，所以只写「拍点」，不写描写，不写形容词堆砌。
 
 分三段，每段 2 到 4 拍：
@@ -100,8 +116,84 @@ export function promptBeats() {
 - 每一拍都要有阻力，没有阻力的节拍表写出来是流水账。
 - 按当前在场的人的性格写，不要套通用模板。
 
-只输出这个 JSON：
-{"beats":[{"phase":"前戏","n":1,"action":"……","react":"……","friction":"……"}]}`;
+输出格式：一拍一个块，phase 和 n 写成属性，三个字段各占一行：
+<beat phase="前戏" n="1">
+action: 她背对着门，钥匙插了两次没进去
+react: 手停住，没回头
+friction: 楼道里有人上下楼
+</beat>
+
+不要写别的字，不要加代码围栏。`;
+
+/* ==================== 注册表 ==================== */
+
+/** 设置页按这个顺序渲染编辑器。 */
+export const PROMPT_FIELDS = [
+  {
+    key: 'kernel',
+    label: '内核',
+    hint: '系统提示。决定 flash 用什么口径理解这个世界。改这里会同时影响三个功能。',
+    rows: 14,
+  },
+  {
+    key: 'choices',
+    label: '走向选项',
+    hint: '六类走向的定义和输出格式。{count} 会替换成设置里的条数。',
+    rows: 12,
+  },
+  {
+    key: 'danmaku',
+    label: '场外弹幕',
+    hint: '弹幕的口吻和触发条件。觉得刷不出来，就把触发条件放宽。',
+    rows: 10,
+  },
+  {
+    key: 'beats',
+    label: '节拍表',
+    hint: '亲密戏的分镜骨架。三段式结构在提示词里写死了，改的时候注意保持 JSON 字段。',
+    rows: 10,
+  },
+];
+
+const DEFAULTS = {
+  kernel: DEFAULT_KERNEL,
+  choices: DEFAULT_CHOICES,
+  danmaku: DEFAULT_DANMAKU,
+  beats: DEFAULT_BEATS,
+};
+
+/** 取某个提示词的最终文本：用户改过就用用户的，没改过用默认。 */
+export function getPrompt(key, settings) {
+  const custom = settings?.prompts?.[key];
+  if (typeof custom === 'string' && custom.trim()) return custom;
+  return DEFAULTS[key] || '';
+}
+
+/** 是否被用户改过（设置页用来显示「已修改」标记）。 */
+export function isCustomized(key, settings) {
+  const custom = settings?.prompts?.[key];
+  return typeof custom === 'string' && custom.trim().length > 0;
+}
+
+export function getDefault(key) {
+  return DEFAULTS[key] || '';
+}
+
+export function getKernel(settings) {
+  return getPrompt('kernel', settings);
+}
+
+export function buildChoices(settings) {
+  const n = settings?.choiceCount ?? 5;
+  return getPrompt('choices', settings).replace(/\{count\}/g, String(n));
+}
+
+export function buildDanmaku(settings) {
+  return getPrompt('danmaku', settings);
+}
+
+export function buildBeats(settings) {
+  return getPrompt('beats', settings);
 }
 
 /** 设置页「测试渠道」用不到内核，这里单独给一条极短的。 */
