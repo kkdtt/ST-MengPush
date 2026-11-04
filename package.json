@@ -3,5 +3,9 @@
   "version": "1.2.1",
   "private": true,
   "type": "module",
-  "description": "造梦师 · 推进台 —— SillyTavern 第三方扩展（无构建，原生 ESM）"
+  "description": "造梦师 · 推进台 —— SillyTavern 第三方扩展（无构建，原生 ESM）",
+  "scripts": {
+    "bump": "node scripts/bump-version.mjs",
+    "test": "node test/smoke.mjs"
+  }
 }
