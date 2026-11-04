@@ -1278,3 +1278,37 @@ textarea {
   background: rgba(0, 0, 0, 0.14);
   border-radius: 5px;
 }
+
+/* ---------------- 解析正则 ---------------- */
+
+.re-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.re-input:focus {
+  border-color: var(--line-strong);
+}
+.re-input::placeholder {
+  color: var(--fg-faint);
+  opacity: 0.65;
+}
+
+.dream-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.dream-count {
+  font-size: 10.5px;
+  color: var(--fg-faint);
+}

@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=1.9.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.0.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.9.0';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.9.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.9.0';
-import { parsePreset } from '../core/import.js?v=1.9.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=1.9.0';
-import { testChannel } from '../core/api.js?v=1.9.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.9.0';
+} from '../core/engine.js?v=2.0.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.0.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.0.0';
+import { parsePreset } from '../core/import.js?v=2.0.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.0.0';
+import { testChannel } from '../core/api.js?v=2.0.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.0.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -416,9 +416,19 @@ export function createPanel(shadow) {
     text: '说',
     onclick: () => sendDream(),
   });
+  const dreamClear = h('button', {
+    class: 'mini-btn',
+    text: '清空',
+    title: '清掉铺子里的对话记录（不影响聊天本身）',
+    onclick: () => {
+      clearDream();
+      render(getState());
+    },
+  });
+
   const dreamWrap = h('div', { class: 'dream-wrap' }, [
     dreamLog,
-    h('div', { class: 'dream-bar' }, [dreamInput, dreamSend]),
+    h('div', { class: 'dream-bar' }, [dreamInput, dreamClear, dreamSend]),
   ]);
 
   dreamInput.addEventListener('keydown', (e) => {
@@ -447,6 +457,10 @@ export function createPanel(shadow) {
     dreamSend.textContent = running ? '…' : '说';
 
     clear(dreamLog);
+
+    // 清空按钮常驻在输入栏里（dreamClear），没有对话时禁用
+    dreamClear.disabled = !d.messages.length;
+    dreamClear.textContent = d.messages.length ? `清空 ${d.messages.length}` : '清空';
 
     if (state.status === 'error' && state.error) {
       dreamLog.appendChild(h('div', { class: 'error-box', text: state.error }));
@@ -952,6 +966,36 @@ export function createPanel(shadow) {
     g5.appendChild(bg);
     box.appendChild(g5);
 
+    /* --- 解析正则 --- */
+    const gre = h('div', { class: 'set-group' }, [h('h4', { text: '解析' })]);
+    gre.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        text: '换别的预设时用。留空走默认：正文取 <content> 标签，摘要取 <details><summary>摘要</summary>。第一个捕获组就是结果。',
+      }),
+    );
+
+    const saveBody = debounced((v) => patchSettings({ bodyRegex: v }));
+    const bodyRe = h('input', {
+      type: 'text',
+      class: 're-input',
+      placeholder: '<content>([\\s\\S]*?)<\\/content>',
+      oninput: (e) => saveBody(e.target.value),
+    });
+    bodyRe.value = s.bodyRegex || '';
+    gre.appendChild(h('div', { class: 'row' }, [h('label', { text: '正文正则' }), bodyRe]));
+
+    const saveSum = debounced((v) => patchSettings({ summaryRegex: v }));
+    const sumRe = h('input', {
+      type: 'text',
+      class: 're-input',
+      placeholder: '<details><summary>摘要<\\/summary>([\\s\\S]*?)<\\/details>',
+      oninput: (e) => saveSum(e.target.value),
+    });
+    sumRe.value = s.summaryRegex || '';
+    gre.appendChild(h('div', { class: 'row' }, [h('label', { text: '摘要正则' }), sumRe]));
+    box.appendChild(gre);
+
     /* --- 预设导入 --- */
     const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '预设导入' })]);
     g6.appendChild(
@@ -1056,6 +1100,22 @@ export function createPanel(shadow) {
     box.appendChild(g7);
   }
 
+  /** token 数按 k 显示，太长了挤不下 */
+  function fmtTokens(n) {
+    const v = Number(n) || 0;
+    if (v < 1000) return String(v);
+    return (v / 1000).toFixed(v < 10000 ? 1 : 0) + 'k';
+  }
+
+  /** 输入防抖，避免每敲一个字都写一次 extension_settings */
+  function debounced(fn, ms = 500) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
+    };
+  }
+
   /* ---------------- 检视页 ---------------- */
 
   function renderInspect(box) {
@@ -1138,7 +1198,10 @@ export function createPanel(shadow) {
       h('summary', { class: 'rec-sum' }, [
         h('span', { class: 'rec-tag ' + (r.self ? 'self' : 'main'), text: r.self ? '推进台' : '主对话' }),
         h('span', { class: 'rec-time', text: time }),
-        h('span', { class: 'rec-meta', text: `${r.count} 条 · ${r.chars} 字` }),
+        h('span', {
+          class: 'rec-meta',
+          text: `${r.count} 条 · ${r.chars} 字 ≈ ${fmtTokens(r.tokens)} token`,
+        }),
       ]),
     ]);
 

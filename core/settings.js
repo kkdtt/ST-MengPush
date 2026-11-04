@@ -1,4 +1,4 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=1.9.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.0.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -23,6 +23,10 @@ export function defaults() {
 
     choiceCount: 5,
     danmakuChance: 0.4,
+
+    /** 自定义解析正则：空串表示用内置默认（<content> / <details><summary>摘要</summary>） */
+    bodyRegex: '',
+    summaryRegex: '',
 
     /** 自定义提示词：空串表示用内置默认。key 见 prompts.js 的 PROMPT_FIELDS。 */
     prompts: { kernel: '', choices: '', danmaku: '', beats: '', outline: '', steps: '' },

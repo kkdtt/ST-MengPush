@@ -61,6 +61,21 @@ export function markSelf(delta) {
   w.__mengPushSelf = Math.max(0, (w.__mengPushSelf || 0) + delta);
 }
 
+/**
+ * 粗略估算 token。中文按 0.7，其余（英文/数字/标点）按 0.28。
+ * 不同模型的分词器有差异，这个值只用于「大概多少」，别当准数。
+ */
+export function estimateTokens(text) {
+  const str = String(text || '');
+  let cjk = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c >= 0x4e00 && c <= 0x9fff) cjk++;
+  }
+  const other = str.length - cjk;
+  return Math.round(cjk * 0.7 + other * 0.28);
+}
+
 function capture(url, bodyText) {
   let body;
   try {
@@ -89,6 +104,7 @@ function capture(url, bodyText) {
     stream: !!body?.stream,
     count: messages.length,
     chars: messages.reduce((n, m) => n + m.content.length, 0),
+    tokens: messages.reduce((n, m) => n + estimateTokens(m.content), 0),
     messages,
   });
 

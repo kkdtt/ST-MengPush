@@ -6,12 +6,12 @@
  *   等 ST 上下文就绪 → 挂 shadow host → 建面板 → 订阅事件
  */
 
-import { getCtx, on, eventTypes } from './core/ctx.js?v=1.9.0';
-import { loadHistory, onGenerationEnded, resetAutoGuard } from './core/engine.js?v=1.9.0';
-import { get as getSettings, invalidate as invalidateSettings, load as loadSettings } from './core/settings.js?v=1.9.0';
-import { install as installInspector } from './core/inspect.js?v=1.9.0';
-import { mountHost, syncTheme } from './ui/host.js?v=1.9.0';
-import { createPanel } from './ui/panel.js?v=1.9.0';
+import { getCtx, on, eventTypes } from './core/ctx.js?v=2.0.0';
+import { loadHistory, onGenerationEnded, resetAutoGuard } from './core/engine.js?v=2.0.0';
+import { get as getSettings, invalidate as invalidateSettings, load as loadSettings } from './core/settings.js?v=2.0.0';
+import { install as installInspector } from './core/inspect.js?v=2.0.0';
+import { mountHost, syncTheme } from './ui/host.js?v=2.0.0';
+import { createPanel } from './ui/panel.js?v=2.0.0';
 
 const TAG = '[推进台]';
 

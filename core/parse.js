@@ -9,7 +9,7 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=1.9.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.0.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -32,12 +32,48 @@ export function stripModules(text) {
     .trim();
 }
 
-/** 取正文：优先 <content>，没有就整条去模块。 */
-export function getBody(message) {
+/**
+ * 取正文。
+ * 有自定义正则就用它（第一个捕获组，没有捕获组就整段匹配），
+ * 没配或写错就退回默认：优先 <content>，再退回「整条去模块」。
+ */
+export function getBody(message, settings) {
   if (!message) return '';
+  const custom = settings?.bodyRegex;
+  if (custom) {
+    try {
+      const re = new RegExp(custom, 'i');
+      const m = re.exec(message);
+      if (m) {
+        const hit = m[1] !== undefined ? m[1] : m[0];
+        if (hit && hit.trim()) return hit.trim();
+      }
+    } catch {
+      /* 正则写错，静默退回默认 */
+    }
+  }
   const m = /<content>([\s\S]*?)<\/content>/i.exec(message);
   if (m) return m[1].trim();
   return stripModules(message);
+}
+
+/** 取摘要。同上，支持自定义正则。 */
+export function extractSummary(text, settings) {
+  if (!text) return '';
+  const custom = settings?.summaryRegex;
+  if (custom) {
+    try {
+      const re = new RegExp(custom, 'i');
+      const m = re.exec(text);
+      if (m) {
+        const hit = m[1] !== undefined ? m[1] : m[0];
+        if (hit && hit.trim()) return hit.trim();
+      }
+    } catch {
+      /* 退回默认 */
+    }
+  }
+  return extractDetails(text, '摘要');
 }
 
 /** 容错解析 JSON：剥代码围栏、取最外层花括号。 */
@@ -90,7 +126,7 @@ export async function collectContext(settings) {
   let used = 0;
 
   for (let i = cutoff - 1; i >= 0; i--) {
-    const s = extractDetails(msgs[i].mes, '摘要');
+    const s = extractSummary(msgs[i].mes, settings);
     if (!s) continue;
     if (summaries.length >= maxCount) break;
     if (summaries.length && used + s.length > maxChars) break;
@@ -112,7 +148,7 @@ export async function collectContext(settings) {
   let lastBodyId = -1;
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].is_user) continue;
-    lastBody = getBody(msgs[i].mes);
+    lastBody = getBody(msgs[i].mes, settings);
     lastBodyId = i;
     if (lastBody) break;
   }
@@ -194,10 +230,9 @@ export function buildSystemContext(ctx, settings) {
     parts.push('<世界观与人物设定>\n' + charParts.join('\n\n') + '\n</世界观与人物设定>');
   }
 
-  // 世界书 after 是「规则与补充」，手填的背景设定也归这里
+  // 世界书 after 是「规则与补充」
   const ruleParts = [];
   if (wi.after) ruleParts.push(clip(wi.after, wiChars));
-  if (ctx.background) ruleParts.push(ctx.background);
   if (ruleParts.length) {
     parts.push('<世界规则与其他补充材料>\n' + ruleParts.join('\n\n') + '\n</世界规则与其他补充材料>');
   }
@@ -260,8 +295,9 @@ export function buildMaterialContext(ctx, settings) {
   const base = buildSystemContext(ctx, settings);
   const parts = base ? [base] : [];
 
-  // 过往事件：大总结在前，更早的摘要按时间顺序跟在后面
+  // 过往事件：手填的背景（通常是存档/大总结）→ 自动抓到的大总结 → 更早的摘要
   const hist = [];
+  if (ctx.background) hist.push(ctx.background);
   if (ctx.bigSummary) hist.push(ctx.bigSummary);
   if (ctx.summaries.length) {
     hist.push(ctx.summaries.map((s, i) => `(${i + 1}) ${s}`).join('\n'));
@@ -288,7 +324,7 @@ export function buildChatHistory(settings) {
     .slice(-n)
     .map((m) => ({
       role: m.is_user ? 'user' : 'assistant',
-      content: m.is_user ? String(m.mes || '').trim() : getBody(m.mes),
+      content: m.is_user ? String(m.mes || '').trim() : getBody(m.mes, settings),
     }))
     .filter((m) => m.content);
 }

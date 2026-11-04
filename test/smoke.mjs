@@ -127,6 +127,7 @@ const {
   buildSnapshot,
   buildMaterialContext,
   buildChatHistory,
+  extractSummary,
 } = await import('../core/parse.js');
 const { normalizeUrl, buildRequestBody } = await import('../core/api.js');
 const settingsMod = await import('../core/settings.js');
@@ -346,6 +347,24 @@ eq('最多保留八条', (() => { for (let i = 0; i < 12; i++) insp.getRecords()
 
 insp.clearRecords();
 eq('清空后为零', insp.getRecords().length, 0);
+
+// 自定义解析正则
+const custom = { bodyRegex: '<正文>([\\s\\S]*?)<\\/正文>', summaryRegex: '<摘要>([\\s\\S]*?)<\\/摘要>' };
+eq('自定义正文正则生效', getBody('<正文>你好</正文>', custom), '你好');
+eq('自定义摘要正则生效', extractSummary('<摘要>时间：晚上</摘要>', custom), '时间：晚上');
+eq('正则写坏时退回默认', getBody('<content>默认</content>', { bodyRegex: '([' }), '默认');
+eq('没配正则时走默认', getBody('<content>默认</content>', {}), '默认');
+
+// 背景设定归到过往事件
+const matBg = buildMaterialContext({ ...ctx, background: '这是手填的存档' }, s);
+const bgAt = matBg.indexOf('这是手填的存档');
+ok('背景在过往事件块内', bgAt > matBg.indexOf('<过往事件>') && bgAt < matBg.indexOf('</过往事件>'));
+ok('背景不在规则块', !(bgAt > matBg.indexOf('<世界规则与其他补充材料>') && bgAt < matBg.indexOf('</世界规则与其他补充材料>')));
+
+// token 估算
+ok('中文四字约三 token', Math.abs(insp.estimateTokens('你好世界') - 3) <= 1, String(insp.estimateTokens('你好世界')));
+eq('空串零 token', insp.estimateTokens(''), 0);
+ok('英文也有 token', insp.estimateTokens('hello world') >= 2);
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);
