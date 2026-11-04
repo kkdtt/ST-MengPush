@@ -15,8 +15,8 @@
  * 声明自己不用工具，是这类拦截器通用的放行信号。
  */
 
-import { getCtx } from './ctx.js?v=2.2.1';
-import { markSelf } from './inspect.js?v=2.2.1';
+import { getCtx } from './ctx.js?v=2.3.0';
+import { markSelf } from './inspect.js?v=2.3.0';
 
 export const GENERATE_URL = '/api/backends/chat-completions/generate';
 
@@ -42,8 +42,8 @@ export function normalizeUrl(input) {
   return u;
 }
 
-export function buildRequestBody(channel, messages, stream) {
-  return {
+export function buildRequestBody(channel, messages, stream, opts = {}) {
+  const body = {
     chat_completion_source: 'openai',
     reverse_proxy: normalizeUrl(channel.url),
     proxy_password: channel.key || '',
@@ -54,8 +54,18 @@ export function buildRequestBody(channel, messages, stream) {
     stream: !!stream,
     presence_penalty: 0,
     frequency_penalty: 0,
+    // 默认声明「不用工具」，这是给第三方 fetch 拦截器的放行信号
     tool_choice: 'none',
   };
+
+  // 工具通道：主动挂上 tools，让模型把内容填进 arguments 而不是正文。
+  // 好处见 core/tools.js 的注释——不是不会截断，是断得能救、触发审查的概率低。
+  if (Array.isArray(opts.tools) && opts.tools.length) {
+    body.tools = opts.tools;
+    body.tool_choice = opts.toolChoice || 'auto';
+  }
+
+  return body;
 }
 
 function extractContent(data) {
@@ -121,7 +131,10 @@ export async function complete(channel, messages, opts = {}) {
   if (!channel?.url || !channel?.model) throw new ApiError('渠道没配全（缺地址或模型名）');
 
   const stream = !!opts.stream;
-  const body = buildRequestBody(channel, messages, stream);
+  const body = buildRequestBody(channel, messages, stream, {
+    tools: opts.tools,
+    toolChoice: opts.toolChoice,
+  });
 
   // 允许单次请求覆盖输出上限——出选项用 900 就够，
   // 梦中梦要回答长问题，得单独给大一点，否则半句话就断
@@ -168,17 +181,21 @@ export async function complete(channel, messages, opts = {}) {
       const content = await readSse(resp);
       if (!content) throw new ApiError('模型返回空内容');
       // 流式拿不到可靠的 finish_reason，按 stop 处理（不做续写）
-      return { content, finishReason: 'stop' };
+      return { content, finishReason: 'stop', toolCalls: null };
     }
 
     const data = await resp.json();
     if (data?.error) throw new ApiError(data.error.message || '上游返回错误');
     const content = extractContent(data);
-    if (!content) throw new ApiError('模型返回空内容');
 
     // finish_reason='length' 表示被输出上限截断，调用方可以据此续写
     const finishReason = String(data?.choices?.[0]?.finish_reason || 'stop');
-    return { content, finishReason };
+    const toolCalls = data?.choices?.[0]?.message?.tool_calls || null;
+
+    // 走工具通道时 content 通常是空的，内容都在 tool_calls 里
+    if (!content && !toolCalls) throw new ApiError('模型返回空内容');
+
+    return { content, finishReason, toolCalls };
   } catch (e) {
     if (timedOut) throw new ApiError(`超时（>${timeoutSec} 秒）`);
     if (e?.name === 'AbortError') throw new ApiError('已取消');

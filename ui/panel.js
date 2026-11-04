@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.2.1';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.3.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.2.1';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.2.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.2.1';
-import { parsePreset } from '../core/import.js?v=2.2.1';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.2.1';
-import { testChannel } from '../core/api.js?v=2.2.1';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.2.1';
+} from '../core/engine.js?v=2.3.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.3.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.3.0';
+import { parsePreset } from '../core/import.js?v=2.3.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.3.0';
+import { testChannel } from '../core/api.js?v=2.3.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.3.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -921,6 +921,20 @@ export function createPanel(shadow) {
     g4.appendChild(
       numRow('梦中梦上限', s.dreamMaxTokens, 500, 32000, 500, (v) => patchSettings({ dreamMaxTokens: v }), 'token'),
     );
+    g4.appendChild(
+      switchRow('工具通道（抗截断）', s.useToolChannel, (v) => {
+        patchSettings({ useToolChannel: v });
+        renderSettings();
+      }),
+    );
+    if (s.useToolChannel) {
+      g4.appendChild(
+        h('div', {
+          class: 'prompt-hint',
+          text: '内容走 tool_calls 的 arguments 而不是正文：断流时能按半截 JSON 救回，触发上游内容过滤的概率也更低。渠道不支持 tools 会自动降级回文本通道。',
+        }),
+      );
+    }
     g4.appendChild(
       numRow('摘要条数', s.summaryDepth, 1, 200, 1, (v) => patchSettings({ summaryDepth: v }), '条'),
     );

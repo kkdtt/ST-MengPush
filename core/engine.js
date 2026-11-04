@@ -9,11 +9,12 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.2.1';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.2.1';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.2.1';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.2.1';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.2.1';
+import { completeWithRetry } from './api.js?v=2.3.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.3.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.3.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.3.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.3.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.3.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -124,6 +125,39 @@ function assembleMessages(settings, material, task) {
   return msgs;
 }
 
+/**
+ * 统一调用：按设置决定走工具通道还是文本通道。
+ *
+ * 工具通道下，内容在 tool_calls 的 arguments 里，不进 content。
+ * 好处是断流时能按半截 JSON 救回来，且触发上游内容过滤的概率更低。
+ * 渠道不支持 tools 时自动降级回文本，不让整轮失败。
+ */
+async function callTask(ch, task, messages, opts, settings) {
+  const tool = settings.useToolChannel ? buildTool(task) : null;
+
+  if (!tool) {
+    const res = await completeWithRetry(ch, messages, opts);
+    return { ...res, args: null };
+  }
+
+  try {
+    const res = await completeWithRetry(ch, messages, {
+      ...opts,
+      tools: [tool],
+      toolChoice: 'auto',
+    });
+    const args = readToolArgs({ tool_calls: res.toolCalls });
+    if (args) return { ...res, args };
+    // 模型没调工具，但给了正文——按文本通道解析
+    if (res.content && res.content.trim()) return { ...res, args: null };
+    throw new Error('工具通道返回空');
+  } catch (e) {
+    console.warn('[推进台] 工具通道失败，降级文本', e);
+    const res = await completeWithRetry(ch, messages, opts);
+    return { ...res, args: null, degraded: true };
+  }
+}
+
 /* ---------------- 主流程 ---------------- */
 
 let currentAbort = null;
@@ -183,12 +217,14 @@ export async function run(opts = {}) {
         (async () => {
           emit({ stage: '生成中' });
           try {
-            const { content: text } = await completeWithRetry(
+            const res = await callTask(
               ch,
+              'choices',
               assembleMessages(settings, material, buildChoices(settings)),
               { signal: abort.signal, retries: settings.retries, stream: false },
+              settings,
             );
-            result.choices = parseChoices(text, settings.choiceCount);
+            result.choices = parseChoices(res.args || res.content, settings.choiceCount);
             result.notes.choices = result.choices.length ? '' : 'empty';
           } catch (e) {
             result.notes.choices = 'error:' + (e?.message || e);
@@ -208,12 +244,14 @@ export async function run(opts = {}) {
             emit({ stage: '生成中' });
             try {
               const dmCh = channelFor('danmaku') || ch;
-              const { content: text } = await completeWithRetry(
+              const res = await callTask(
                 dmCh,
+                'danmaku',
                 assembleMessages(settings, material, buildDanmaku(settings)),
                 { signal: abort.signal, retries: 0, stream: false },
+                settings,
               );
-              result.danmaku = parseDanmaku(text);
+              result.danmaku = parseDanmaku(res.args || res.content);
               result.notes.danmaku = result.danmaku.length ? '' : 'empty';
             } catch (e) {
               result.danmaku = [];
@@ -235,12 +273,14 @@ export async function run(opts = {}) {
           emit({ stage: '排节拍' });
           try {
             const btCh = channelFor('beats') || ch;
-            const { content: text } = await completeWithRetry(
+            const res = await callTask(
               btCh,
+              'beats',
               assembleMessages(settings, material, buildBeats(settings)),
               { signal: abort.signal, retries: 0, stream: false },
+              settings,
             );
-            result.beats = parseBeats(text);
+            result.beats = parseBeats(res.args || res.content);
             result.notes.beats = result.beats.length ? '' : 'empty';
           } catch (e) {
             result.notes.beats = 'error:' + (e?.message || e);
@@ -295,8 +335,13 @@ export function runOne(task) {
  *   2. 裸数组 [...]
  *   3. 按行抠——去掉编号、引号、项目符号，留下像弹幕的短句
  */
-export function parseDanmaku(text) {
-  const raw = String(text || '').trim();
+export function parseDanmaku(input) {
+  if (input && typeof input === 'object') {
+    const arr = Array.isArray(input.danmaku) ? input.danmaku : [];
+    return cleanList(arr);
+  }
+
+  const raw = String(input || '').trim();
   if (!raw) return [];
 
   // ① <dm>…</dm>，逐条闭合，截断不影响已闭合的部分
@@ -354,8 +399,13 @@ function cleanList(list) {
 }
 
 /** 解析节拍表。字段缺失时给空串，前端按空处理。 */
-export function parseBeats(text) {
-  const raw = String(text || '');
+export function parseBeats(input) {
+  if (input && typeof input === 'object') {
+    const arr = Array.isArray(input.beats) ? input.beats : [];
+    return normalizeBeats(arr);
+  }
+
+  const raw = String(input || '');
   const out = [];
 
   // ① <beat phase="前戏" n="1"> action: … react: … friction: … </beat>
@@ -383,7 +433,11 @@ export function parseBeats(text) {
 
   // ② JSON 兜底
   const j = parseJSON(raw);
-  const arr = Array.isArray(j?.beats) ? j.beats : [];
+  return normalizeBeats(Array.isArray(j?.beats) ? j.beats : []);
+}
+
+function normalizeBeats(arr) {
+  const out = [];
   for (const b of arr) {
     if (!b) continue;
     const action = String(b.action ?? '').trim();
@@ -422,8 +476,13 @@ function parseAttrs(s) {
  * 就能解析出一条，后面被截断也不影响前面已经拿到的。JSON 是整体结构，
  * 截断一个字符就全废——这就是「抗截断」的全部意义。
  */
-export function parseChoices(text, limit) {
-  const raw = String(text || '');
+export function parseChoices(input, limit) {
+  // 工具通道直接把参数对象递进来，省掉解析
+  if (input && typeof input === 'object') {
+    return finishChoices(normalizeChoiceList(Array.isArray(input.choices) ? input.choices : [], limit), limit);
+  }
+
+  const raw = String(input || '');
   const out = [];
 
   const re = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
@@ -456,7 +515,28 @@ export function parseChoices(text, limit) {
     }
   }
 
-  // 模型没给够时，把「退让」补上——这一类最容易被漏，但它是唯一的出口
+  return finishChoices(out, limit);
+}
+
+/** 把工具参数里的数组规整成统一的选项结构。 */
+function normalizeChoiceList(arr, limit) {
+  const out = [];
+  for (const c of arr) {
+    if (!c) continue;
+    const body = String(c.text ?? c.content ?? '').trim();
+    if (!body) continue;
+    out.push({
+      type: TYPES.includes(String(c.type)) ? String(c.type) : '顺承',
+      text: body.slice(0, 60),
+      risk: RISKS.includes(String(c.risk)) ? String(c.risk) : '中',
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** 模型没给够时，把「退让」补上——这一类最容易被漏，但它是唯一的出口。 */
+function finishChoices(out, limit) {
   if (out.length && !out.some((c) => c.type === '退让') && out.length < limit) {
     out.push({ type: '退让', text: '什么都不做，先看着', risk: '低' });
   }
@@ -532,11 +612,23 @@ export function clearStory() {
   emit({ story: null });
 }
 
-export function parseOutline(text) {
+export function parseOutline(input) {
+  if (input && typeof input === 'object') {
+    const arr = Array.isArray(input.outline) ? input.outline : [];
+    return arr
+      .filter((o) => o && String(o.text || '').trim())
+      .slice(0, 10)
+      .map((o, i) => ({
+        n: Number(o.n) || i + 1,
+        title: String(o.title || '').trim(),
+        text: String(o.text).trim(),
+      }));
+  }
+
   const out = [];
   const re = /<outline\b([^>]*)>([\s\S]*?)<\/outline>/gi;
   let m;
-  while ((m = re.exec(String(text || ''))) !== null) {
+  while ((m = re.exec(String(input || ''))) !== null) {
     const attrs = parseAttrs(m[1]);
     const body = m[2].replace(/\s+/g, ' ').trim();
     if (!body) continue;
@@ -550,11 +642,19 @@ export function parseOutline(text) {
   return out;
 }
 
-export function parseSteps(text) {
+export function parseSteps(input) {
+  if (input && typeof input === 'object') {
+    const arr = Array.isArray(input.steps) ? input.steps : [];
+    return arr
+      .filter((x) => x && String(x.text || '').trim())
+      .slice(0, 20)
+      .map((x, i) => ({ n: Number(x.n) || i + 1, text: String(x.text).trim(), done: false }));
+  }
+
   const out = [];
   const re = /<step\b([^>]*)>([\s\S]*?)<\/step>/gi;
   let m;
-  while ((m = re.exec(String(text || ''))) !== null) {
+  while ((m = re.exec(String(input || ''))) !== null) {
     const attrs = parseAttrs(m[1]);
     const body = m[2].replace(/\s+/g, ' ').trim();
     if (!body) continue;
@@ -704,8 +804,17 @@ export function stripMarkdown(text) {
     .trim();
 }
 
-export function parseDream(text) {
-  const raw = String(text || '');
+export function parseDream(input) {
+  if (input && typeof input === 'object') {
+    const say = stripMarkdown(String(input.say || '').trim());
+    return {
+      say: say || '（他没说话，只是把灯挪近了一点。）',
+      choices: parseChoices({ choices: input.choices || [] }, 6),
+      danmaku: parseDanmaku({ danmaku: input.danmaku || [] }),
+    };
+  }
+
+  const raw = String(input || '');
 
   // 续写可能产生多个 <say> 块，全部按顺序拼起来
   const blocks = [...raw.matchAll(/<say>([\s\S]*?)<\/say>/gi)]
@@ -801,38 +910,47 @@ export async function runDream(input) {
       maxTokens: settings.dreamMaxTokens || 12000,
     };
 
-    let { content: raw, finishReason: fin } = await completeWithRetry(ch, baseMessages, reqOpts);
+    const first = await callTask(ch, 'dream', baseMessages, reqOpts, settings);
 
-    // finish_reason='length' 说明撞上输出上限。自动续写，最多两轮。
-    // 续写时不重发整个上下文，而是把已生成的内容作为 assistant 消息接上，
-    // 让它「接着往下写」——这是唯一真正能绕过长度限制的办法。
-    let guard = 0;
-    while (fin === 'length' && guard < 2 && !abort.signal.aborted) {
-      guard++;
-      emit({ stage: `续写 ${guard}` });
-      try {
-        const cont = await completeWithRetry(
-          ch,
-          [
-            ...baseMessages,
-            { role: 'assistant', content: raw },
-            {
-              role: 'user',
-              content: '接着上一句往下写。不要重复已经写过的字，不要重新开头，不要写 <say> 标签。',
-            },
-          ],
-          reqOpts,
-        );
-        if (!cont.content || !cont.content.trim()) break;
-        raw += cont.content;
-        fin = cont.finishReason;
-      } catch (e) {
-        console.warn('[推进台] 续写失败，用已生成的部分', e);
-        break;
+    let parsed;
+
+    if (first.args) {
+      // 工具通道：参数已经是结构化的，截断的部分 salvageJson 已尽力救
+      parsed = parseDream(first.args);
+    } else {
+      let raw = first.content || '';
+      let fin = first.finishReason;
+
+      // finish_reason='length' 说明撞上输出上限。自动续写，最多两轮。
+      // 续写走文本通道——「接着写」这种指令用纯文本更自然。
+      let guard = 0;
+      while (fin === 'length' && guard < 2 && !abort.signal.aborted) {
+        guard++;
+        emit({ stage: `续写 ${guard}` });
+        try {
+          const cont = await completeWithRetry(
+            ch,
+            [
+              ...baseMessages,
+              { role: 'assistant', content: raw },
+              {
+                role: 'user',
+                content: '接着上一句往下写。不要重复已经写过的字，不要重新开头，不要写 <say> 标签。',
+              },
+            ],
+            reqOpts,
+          );
+          if (!cont.content || !cont.content.trim()) break;
+          raw += cont.content;
+          fin = cont.finishReason;
+        } catch (e) {
+          console.warn('[推进台] 续写失败，用已生成的部分', e);
+          break;
+        }
       }
-    }
 
-    const parsed = parseDream(raw);
+      parsed = parseDream(raw);
+    }
     const messages = [
       ...pending.messages,
       {

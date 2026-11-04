@@ -158,6 +158,7 @@ const { normalizeUrl, buildRequestBody } = await import('../core/api.js');
 const settingsMod = await import('../core/settings.js');
 const engine = await import('../core/engine.js');
 const importer = await import('../core/import.js');
+const toolsMod = await import('../core/tools.js');
 
 console.log('\n— 解析层 —');
 const msg = CHAT[2].mes;
@@ -409,6 +410,34 @@ const dreamMsgs = engine.getDream().messages;
 const lastSay = dreamMsgs[dreamMsgs.length - 1]?.text || '';
 ok('续写内容已拼接', lastSay.includes('前半句') && lastSay.includes('后半句'), lastSay.slice(0, 60));
 ok('续写后没有残留标签', !/<\/?say>/.test(lastSay));
+
+// 工具通道
+const toolDef = toolsMod.buildTool('choices');
+ok('工具定义有名字', toolDef.function.name === 'submit');
+ok('工具只含 choices 字段', !!toolDef.function.parameters.properties.choices);
+ok('工具不含别的任务字段', !toolDef.function.parameters.properties.say);
+eq('未知任务返回 null', toolsMod.buildTool('不存在'), null);
+
+eq('完整 JSON 正常解析', toolsMod.salvageJson('{"a":1}').a, 1);
+eq('半截数组能救', toolsMod.salvageJson('{"choices":[{"type":"顺承","text":"递咖啡"}').choices.length, 1);
+eq('半截字符串能救', toolsMod.salvageJson('{"say":"线还热着').say, '线还热着');
+eq('空输入返回 null', toolsMod.salvageJson(''), null);
+
+const toolArgs = toolsMod.readToolArgs({
+  tool_calls: [
+    { function: { name: 'submit', arguments: '{"choices":[{"type":"破局","text":"问她","risk":"高"}]}' } },
+  ],
+});
+eq('从 tool_calls 取参数', toolArgs.choices[0].type, '破局');
+eq('没有工具调用返回 null', toolsMod.readToolArgs({ content: 'hi' }), null);
+
+// 解析器接受工具参数对象
+eq('选项对象输入', engine.parseChoices({ choices: [{ type: '退让', text: '不动' }] }, 5)[0].type, '退让');
+eq('弹幕对象输入', engine.parseDanmaku({ danmaku: ['笑死'] })[0], '笑死');
+eq('节拍对象输入', engine.parseBeats({ beats: [{ phase: '前戏', action: '抵住' }] })[0].action, '抵住');
+eq('大纲对象输入', engine.parseOutline({ outline: [{ n: 1, title: '拉链', text: '卡住' }] })[0].title, '拉链');
+eq('步骤对象输入', engine.parseSteps({ steps: [{ n: 1, text: '写她插钥匙' }] })[0].text, '写她插钥匙');
+eq('梦中梦对象输入', engine.parseDream({ say: '**坐。**' }).say, '坐。');
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);
