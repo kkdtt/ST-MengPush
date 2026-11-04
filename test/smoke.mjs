@@ -154,6 +154,15 @@ ok('大总结进了快照', snap.includes('每周三来买同一款咖啡'));
 ok('角色卡带性格字段', snap.includes('性格：'));
 ok('快照按由远到近排序', snap.indexOf('世界设定') < snap.indexOf('最近几场摘要'));
 
+// 外部导入的完整上下文
+CTX.chatMetadata['meng_push_external_context'] = '[system]\n完整预设\n\n[user]\n这是主模型的 payload';
+const ctxExt = await collectContext(s);
+const snapExt = buildSnapshot(ctxExt, s);
+ok('外部上下文被采用', snapExt.includes('这是主模型的 payload'));
+ok('外部上下文时不再拼世界书', !snapExt.includes('世界设定（世界书）'));
+ok('外部上下文有说明前缀', snapExt.includes('主模型本轮收到的完整请求'));
+CTX.chatMetadata['meng_push_external_context'] = '';
+
 console.log('\n— 请求构造 —');
 eq('裸域名补 /v1', normalizeUrl('https://api.demo.com'), 'https://api.demo.com/v1');
 eq('已带 /v1 不动', normalizeUrl('https://api.demo.com/v1/'), 'https://api.demo.com/v1');

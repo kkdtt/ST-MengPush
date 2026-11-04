@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput } from '../core/ctx.js?v=1.6.1';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=1.7.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.6.1';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.6.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.6.1';
-import { parsePreset } from '../core/import.js?v=1.6.1';
-import { clearRecords, getRecords } from '../core/inspect.js?v=1.6.1';
-import { testChannel } from '../core/api.js?v=1.6.1';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.6.1';
+} from '../core/engine.js?v=1.7.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.7.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.7.0';
+import { parsePreset } from '../core/import.js?v=1.7.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=1.7.0';
+import { testChannel } from '../core/api.js?v=1.7.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.7.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -1059,6 +1059,27 @@ export function createPanel(shadow) {
     const recs = getRecords();
 
     const g = h('div', { class: 'set-group' }, [h('h4', { text: '最近发出去的请求' })]);
+
+    // 当前用的外部上下文
+    const ext = String(readChatMeta('meng_push_external_context') || '');
+    if (ext) {
+      g.appendChild(
+        h('div', { class: 'import-preview ok' }, [
+          h('div', { text: `当前上下文来自导入：${ext.length} 字` }),
+          h('div', { class: 'story-ctrl' }, [
+            h('button', {
+              class: 'mini-btn',
+              text: '清除，改回自动拼装',
+              onclick: () => {
+                writeChatMeta('meng_push_external_context', '');
+                renderSettings();
+              },
+            }),
+          ]),
+        ]),
+      );
+    }
+
     g.appendChild(
       h('div', {
         class: 'prompt-hint',
@@ -1132,6 +1153,17 @@ export function createPanel(shadow) {
 
     body.appendChild(
       h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn primary',
+          text: '设为上下文',
+          title: '把这条请求的完整内容设为推进台的上下文，选项/弹幕/梦中梦都会用它',
+          onclick: () => {
+            const text = r.messages.map((m) => `[${m.role}]\n${m.content}`).join('\n\n');
+            writeChatMeta('meng_push_external_context', text);
+            renderSettings();
+            setStatus(`已设为上下文 · ${text.length} 字`);
+          },
+        }),
         h('button', {
           class: 'mini-btn',
           text: '复制全文',

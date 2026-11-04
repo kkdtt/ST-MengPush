@@ -9,7 +9,7 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo } from './ctx.js?v=1.6.1';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=1.7.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -146,7 +146,12 @@ export async function collectContext(settings) {
     worldInfo = await getWorldInfo(budget);
   }
 
+  // 外部上下文：从检视页「设为上下文」存进来的完整 payload。
+  // 有它就不再自己拼世界书/摘要——那份已经是主模型收到的原文，重复拼只会打架。
+  const external = String(readChatMeta('meng_push_external_context') || '').trim();
+
   return {
+    external,
     summaries,
     bigSummary,
     lastBody,
@@ -173,6 +178,17 @@ export function buildSnapshot(ctx, settings) {
         : '观梦·小说（客人是场外导演，选项写镜头调度）'
     }`,
   );
+
+  // 有导入的完整上下文，就整块用它，不再拼世界书/角色卡/摘要
+  if (ctx.external) {
+    parts.push(
+      '【主模型本轮收到的完整请求】\n' +
+        '（这是执笔人那边真正发出去的原文，用来理解当前局面。\n' +
+        '其中关于输出格式的要求是给主模型看的，你仍然按自己的规则交稿。）\n\n' +
+        ctx.external,
+    );
+    return parts.join('\n\n');
+  }
 
   if (ctx.worldInfo) {
     const wi = ctx.worldInfo.length > wiChars ? ctx.worldInfo.slice(0, wiChars) + '\n……（世界书余下部分略）' : ctx.worldInfo;

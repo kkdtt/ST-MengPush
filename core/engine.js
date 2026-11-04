@@ -9,11 +9,11 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=1.6.1';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=1.6.1';
-import { buildSnapshot, collectContext, parseJSON } from './parse.js?v=1.6.1';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=1.6.1';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.6.1';
+import { completeWithRetry } from './api.js?v=1.7.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=1.7.0';
+import { buildSnapshot, collectContext, parseJSON } from './parse.js?v=1.7.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=1.7.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.7.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
