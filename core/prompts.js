@@ -177,6 +177,31 @@ export const DEFAULT_STEPS = `把上面的大纲均匀拆成 {count} 个连贯�
 
 （示例里的「角色名」替换成当前在场的真实姓名。）`;
 
+export const DEFAULT_MOVES = `在这个局面里，有人要动手了。
+
+不是「反派」——是任何一个在场或不在场的人，在符合他性格、处境和利益的前提下，做一件对别人不利的事。
+可以是算计、隐瞒、抢先一步、借刀、说一半真话、把责任推出去、把别人的功劳按在自己头上。
+
+【硬要求】
+1. 必须符合这个人的性格、处境和已知利益。不 OOC，不为了坏而坏。
+2. 他得有一个能说服自己的理由——哪怕这个理由在别人看来很可笑。
+3. 说清三件事：他做了什么、谁因此得利或受损、他自己要付出什么。
+4. 代价必须真实：可能被戳穿、可能欠人情、可能得罪人、可能失去什么。不许零成本。
+5. 只写这一件事。不写结果，不写后续，不写「这一步为后来的……埋下伏笔」。
+
+【产出 {count} 条】
+优先从当前在场的人里挑。人不够时，可以是「不在场但与此事有关」的人，那样要写清他人在哪、怎么动的手。
+
+【输出格式】
+一条一个块，who 填角色真名，risk 是这件事被戳穿的概率（低/中/高）：
+<move n="1" who="角色名" risk="中">
+act: 具体做了什么，精确到动作或那句话
+gain: 谁因此得利，得的是什么利
+cost: 他自己要付出什么代价
+</move>
+
+不要额外文字，不要代码围栏。`;
+
 /* ==================== 身份认领 ==================== */
 
 /**
@@ -255,9 +280,15 @@ export const PROMPT_FIELDS = [
   },
   {
     key: 'steps',
-    label: '分步执行',
-    hint: '把大纲拆成可执行步骤。{count} 是步数。步骤点击后会直接发给主模型。',
+    label: '拆解步骤',
+    hint: '把大纲拆成可执行步骤，一步步推。{count} 是步数。点一下填进输入框。',
     rows: 9,
+  },
+  {
+    key: 'moves',
+    label: '反派行动',
+    hint: '让某个人在这个局面里做一件对别人不利的事。{count} 是条数。点一下能填进输入框。',
+    rows: 10,
   },
   {
     key: 'ack',
@@ -280,6 +311,7 @@ const DEFAULTS = {
   beats: DEFAULT_BEATS,
   outline: DEFAULT_OUTLINE,
   steps: DEFAULT_STEPS,
+  moves: DEFAULT_MOVES,
   dream: DEFAULT_DREAM,
   ack: DEFAULT_ACK,
 };
@@ -334,6 +366,10 @@ export function buildOutline(settings, { keyword, scale, count }) {
 
 export function buildSteps(settings, { count }) {
   return getPrompt('steps', settings).replace(/\{count\}/g, String(count ?? 5));
+}
+
+export function buildMoves(settings, { count }) {
+  return getPrompt('moves', settings).replace(/\{count\}/g, String(count ?? 4));
 }
 
 /** 设置页「测试渠道」用不到内核，这里单独给一条极短的。 */

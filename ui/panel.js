@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.7.2';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.8.0';
 import {
   cancel,
   clearHistory,
@@ -17,19 +17,18 @@ import {
   isRunning,
   loadHistory,
   loadStory,
-  markStepDone,
   run,
   runOne,
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.7.2';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.7.2';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.7.2';
-import { parsePreset } from '../core/import.js?v=2.7.2';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.7.2';
-import { testChannel } from '../core/api.js?v=2.7.2';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.7.2';
+} from '../core/engine.js?v=2.8.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.8.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.8.0';
+import { parsePreset } from '../core/import.js?v=2.8.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.8.0';
+import { testChannel } from '../core/api.js?v=2.8.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.8.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -588,6 +587,7 @@ export function createPanel(shadow) {
 
     const outline = story.outline || [];
     const steps = story.steps || [];
+    const moves = story.moves || [];
 
     if (!outline.length) {
       storyBody.appendChild(
@@ -599,16 +599,28 @@ export function createPanel(shadow) {
       return;
     }
 
-    storyBody.appendChild(h('div', { class: 'section-label', text: '大纲' }));
+    storyBody.appendChild(h('div', { class: 'section-label', text: '大纲 · 点一下填入输入框' }));
     for (const o of outline) {
       storyBody.appendChild(
-        h('div', { class: 'outline-item' }, [
-          h('span', { class: 'outline-n', text: String(o.n) }),
-          h('div', { class: 'outline-main' }, [
-            o.title ? h('b', { text: o.title }) : null,
-            h('span', { class: 'outline-text', text: o.text }),
-          ]),
-        ]),
+        h(
+          'button',
+          {
+            class: 'outline-item',
+            title: '单击填入输入框，Ctrl+单击直接发送',
+            onclick: (e) => {
+              const send = e.ctrlKey || e.metaKey;
+              fillInput(o.text, send);
+              setStatus(send ? '已发送' : '已填入，改完发出去');
+            },
+          },
+          [
+            h('span', { class: 'outline-n', text: String(o.n) }),
+            h('div', { class: 'outline-main' }, [
+              o.title ? h('b', { text: o.title }) : null,
+              h('span', { class: 'outline-text', text: o.text }),
+            ]),
+          ],
+        ),
       );
     }
 
@@ -629,9 +641,15 @@ export function createPanel(shadow) {
         stepCount,
         h('button', {
           class: 'mini-btn',
-          text: steps.length ? '重新分步' : '分步执行',
+          text: steps.length ? '重新拆解' : '拆解',
           disabled: running,
           onclick: () => runStory('steps', { count: Number(stepCount.value) }),
+        }),
+        h('button', {
+          class: 'mini-btn',
+          text: moves.length ? '换一批' : '反派行动',
+          disabled: running,
+          onclick: () => runStory('moves', { count: 4 }),
         }),
         h('button', {
           class: 'mini-btn',
@@ -647,26 +665,53 @@ export function createPanel(shadow) {
     );
 
     if (steps.length) {
-      storyBody.appendChild(
-        h('div', { class: 'section-label', text: '步骤 · 点一下填入输入框' }),
-      );
+      storyBody.appendChild(h('div', { class: 'section-label', text: '步骤 · 一步一步推' }));
       for (const st of steps) {
         storyBody.appendChild(
           h(
             'button',
             {
-              class: 'step' + (st.done ? ' done' : ''),
+              class: 'step',
               title: '单击填入输入框，Ctrl+单击直接发送',
               onclick: (e) => {
                 const send = e.ctrlKey || e.metaKey;
                 fillInput(st.text, send);
-                if (!send) markStepDone(st.n);
                 setStatus(send ? '已发送' : '已填入，改完发出去');
               },
             },
             [
               h('span', { class: 'step-n', text: String(st.n) }),
               h('span', { class: 'step-text', text: st.text }),
+            ],
+          ),
+        );
+      }
+    }
+
+    if (moves.length) {
+      storyBody.appendChild(h('div', { class: 'section-label', text: '反派行动 · 有人要动手了' }));
+      for (const m of moves) {
+        storyBody.appendChild(
+          h(
+            'button',
+            {
+              class: 'move',
+              title: '单击填入输入框，Ctrl+单击直接发送',
+              onclick: (e) => {
+                const send = e.ctrlKey || e.metaKey;
+                fillInput(`${m.who}：${m.act}`, send);
+                setStatus(send ? '已发送' : '已填入，改完发出去');
+              },
+            },
+            [
+              h('div', { class: 'move-head' }, [
+                h('span', { class: 'move-n', text: String(m.n) }),
+                h('span', { class: 'move-who', text: m.who || '某人' }),
+                m.risk ? h('span', { class: `chip risk-${m.risk}`, text: '暴露 ' + m.risk }) : null,
+              ]),
+              h('div', { class: 'move-act', text: m.act }),
+              m.gain ? h('div', { class: 'move-line', text: '得利：' + m.gain }) : null,
+              m.cost ? h('div', { class: 'move-line', text: '代价：' + m.cost }) : null,
             ],
           ),
         );

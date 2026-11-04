@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.7.2';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.7.2';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.7.2';
-import { attachResult } from './inspect.js?v=2.7.2';
-import { buildTool, readToolArgs } from './tools.js?v=2.7.2';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.7.2';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.7.2';
+import { completeWithRetry } from './api.js?v=2.8.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.8.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.8.0';
+import { attachResult } from './inspect.js?v=2.8.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.8.0';
+import { buildBeats, buildChoices, buildDanmaku, buildMoves, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.8.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.8.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -30,7 +30,7 @@ const state = {
   error: '',
   result: null, // { choices, danmaku, beats, notes, at, messageId }
   history: [],
-  story: null, // { keyword, scale, outline, steps, stepCount, busy }
+  story: null, // { keyword, scale, outline, moves, moveCount, busy }
   dream: null, // { messages: [{role, text, at, choices, danmaku}] }
 };
 
@@ -612,6 +612,8 @@ export function getStory() {
       outline: [],
       steps: [],
       stepCount: 5,
+      moves: [],
+      moveCount: 4,
       at: 0,
     }
   );
@@ -670,18 +672,69 @@ export function parseSteps(input) {
     return arr
       .filter((x) => x && String(x.text || '').trim())
       .slice(0, 20)
-      .map((x, i) => ({ n: Number(x.n) || i + 1, text: String(x.text).trim(), done: false }));
+      .map((x, i) => ({ n: Number(x.n) || i + 1, text: String(x.text).trim() }));
   }
 
+  const raw = String(input || '');
   const out = [];
   const re = /<step\b([^>]*)>([\s\S]*?)<\/step>/gi;
   let m;
-  while ((m = re.exec(String(input || ''))) !== null) {
+  while ((m = re.exec(raw)) !== null) {
     const attrs = parseAttrs(m[1]);
     const body = m[2].replace(/\s+/g, ' ').trim();
     if (!body) continue;
-    out.push({ n: Number(attrs.n) || out.length + 1, text: body, done: false });
+    out.push({ n: Number(attrs.n) || out.length + 1, text: body });
     if (out.length >= 20) break;
+  }
+  return out;
+}
+
+export function parseMoves(input) {
+  if (input && typeof input === 'object') {
+    return normalizeMoves(Array.isArray(input.moves) ? input.moves : []);
+  }
+
+  const raw = String(input || '');
+  const out = [];
+  const re = /<move\b([^>]*)>([\s\S]*?)<\/move>/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const attrs = parseAttrs(m[1]);
+    const body = m[2];
+    const field = (name) => {
+      const hit = new RegExp(name + '\\s*[:：]\\s*([^\\n]+)', 'i').exec(body);
+      return hit ? hit[1].trim() : '';
+    };
+    const act = field('act');
+    if (!act) continue;
+    out.push({
+      n: Number(attrs.n) || out.length + 1,
+      who: String(attrs.who || '').trim(),
+      risk: String(attrs.risk || '').trim(),
+      act,
+      gain: field('gain'),
+      cost: field('cost'),
+    });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function normalizeMoves(arr) {
+  const out = [];
+  for (const x of arr) {
+    if (!x) continue;
+    const act = String(x.act ?? '').trim();
+    if (!act) continue;
+    out.push({
+      n: Number(x.n) || out.length + 1,
+      who: String(x.who || '').trim(),
+      risk: String(x.risk || '').trim(),
+      act,
+      gain: String(x.gain || '').trim(),
+      cost: String(x.cost || '').trim(),
+    });
+    if (out.length >= 12) break;
   }
   return out;
 }
@@ -689,7 +742,7 @@ export function parseSteps(input) {
 /**
  * 创作页的两个动作。
  *   runStory('outline', { keyword, scale })  → 出大纲
- *   runStory('steps', { count })             → 把大纲拆成步骤
+ *   runStory('moves', { count })             → 让某个人动手
  */
 export async function runStory(action, params = {}) {
   const settings = getSettings();
@@ -730,26 +783,45 @@ export async function runStory(action, params = {}) {
       );
       const outline = parseOutline(res.args || res.content);
       if (!outline.length) throw new Error('模型没给出可用的大纲');
-      saveStory({ keyword: params.keyword || '', scale, outline, steps: [], at: Date.now() });
+      saveStory({ keyword: params.keyword || '', scale, outline, steps: [], moves: [], at: Date.now() });
     } else {
       const story = getStory();
       if (!story.outline?.length) throw new Error('还没有大纲，先出大纲');
-      const count = Math.min(12, Math.max(2, params.count || 5));
       const outlineText = story.outline.map((o) => `${o.n}. ${o.title ? o.title + '：' : ''}${o.text}`).join('\n');
-      const res = await callTask(
-        ch,
-        'steps',
-        assembleMessages(
+
+      if (action === 'steps') {
+        const count = Math.min(12, Math.max(2, params.count || 5));
+        const res = await callTask(
+          ch,
+          'steps',
+          assembleMessages(
+            settings,
+            material,
+            '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }),
+          ),
+          { signal: abort.signal, retries: settings.retries, stream: false },
           settings,
-          material,
-          '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }),
-        ),
-        { signal: abort.signal, retries: settings.retries, stream: false },
-        settings,
-      );
-      const steps = parseSteps(res.args || res.content);
-      if (!steps.length) throw new Error('模型没给出可用的步骤');
-      saveStory({ steps, stepCount: count, at: Date.now() });
+        );
+        const steps = parseSteps(res.args || res.content);
+        if (!steps.length) throw new Error('模型没给出可用的步骤');
+        saveStory({ steps, stepCount: count, at: Date.now() });
+      } else {
+        const count = Math.min(12, Math.max(1, params.count || 4));
+        const res = await callTask(
+          ch,
+          'moves',
+          assembleMessages(
+            settings,
+            material,
+            '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildMoves(settings, { count }),
+          ),
+          { signal: abort.signal, retries: settings.retries, stream: false },
+          settings,
+        );
+        const moves = parseMoves(res.args || res.content);
+        if (!moves.length) throw new Error('模型没给出可用的行动');
+        saveStory({ moves, moveCount: count, at: Date.now() });
+      }
     }
 
     emit({ status: 'idle', stage: '' });
@@ -763,13 +835,6 @@ export async function runStory(action, params = {}) {
   } finally {
     if (currentAbort === abort) currentAbort = null;
   }
-}
-
-/** 把某一步标记为已执行。 */
-export function markStepDone(n) {
-  const story = getStory();
-  const steps = (story.steps || []).map((s) => (s.n === n ? { ...s, done: true } : s));
-  saveStory({ steps });
 }
 
 /* ---------------- 梦中梦 ---------------- */

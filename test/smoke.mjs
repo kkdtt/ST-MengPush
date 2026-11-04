@@ -262,7 +262,7 @@ eq('outline 正文', ol[0].text, '她把拉链卡住，他伸手帮忙');
 
 const sp = engine.parseSteps('<step n="1">写她插钥匙，插了两次没进去</step>\n<step n="2">写他伸手把钥匙转正</step>');
 eq('<step> 解析', sp.length, 2);
-eq('step 默认未完成', sp[0].done, false);
+eq('step 解析出序号', sp[0].n, 1);
 eq('step 截断保住前面', engine.parseSteps('<step n="1">一</step>\n<step n="2">二</step>\n<step n="3">三').length, 2);
 
 // 梦中梦
