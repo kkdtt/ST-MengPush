@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput } from '../core/ctx.js';
+import { fillInput } from '../core/ctx.js?v=1.2.1';
 import {
   cancel,
   clearHistory,
@@ -20,11 +20,11 @@ import {
   runOne,
   runStory,
   subscribe,
-} from '../core/engine.js';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js';
-import { testChannel } from '../core/api.js';
-import { clear, h, icon, makeDraggable } from './host.js';
+} from '../core/engine.js?v=1.2.1';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.2.1';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.2.1';
+import { testChannel } from '../core/api.js?v=1.2.1';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.2.1';
 
 const TABS = [
   { id: 'choices', label: '走向' },

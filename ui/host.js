@@ -6,7 +6,8 @@
  * 是唯一能同时解决这两件事的办法。
  */
 
-import { detectTheme } from '../core/ctx.js';
+import { detectTheme } from '../core/ctx.js?v=1.2.1';
+import { VERSION } from '../core/version.js?v=1.2.1';
 
 const HOST_ID = 'meng-push-host';
 
@@ -50,7 +51,8 @@ export function mountHost() {
 
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = new URL('./style.css', import.meta.url).href;
+  // 带版本号，否则改了 CSS 浏览器还用旧的
+  link.href = new URL(`./style.css?v=${VERSION}`, import.meta.url).href;
   shadow.appendChild(link);
 
   syncTheme();
