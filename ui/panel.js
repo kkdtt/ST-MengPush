@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.9.2';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.9.3';
 import {
   cancel,
   clearHistory,
@@ -22,13 +22,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.9.2';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.9.2';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.9.2';
-import { parsePreset } from '../core/import.js?v=2.9.2';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.9.2';
-import { testChannel } from '../core/api.js?v=2.9.2';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.9.2';
+} from '../core/engine.js?v=2.9.3';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.9.3';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.9.3';
+import { parsePreset } from '../core/import.js?v=2.9.3';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.9.3';
+import { testChannel } from '../core/api.js?v=2.9.3';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.9.3';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -341,6 +341,17 @@ export function createPanel(shadow) {
         ),
       );
     });
+
+    bodyEl.appendChild(
+      h('div', { class: 'note-row' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '重跑',
+          disabled: state.status === 'running',
+          onclick: () => runOne('choices'),
+        }),
+      ]),
+    );
   }
 
   /**
@@ -420,6 +431,17 @@ export function createPanel(shadow) {
         ),
       );
     }
+
+    bodyEl.appendChild(
+      h('div', { class: 'note-row' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '再想一批',
+          disabled: state.status === 'running',
+          onclick: () => runOne('moves'),
+        }),
+      ]),
+    );
   }
 
   function renderDanmaku(state) {
@@ -475,6 +497,17 @@ export function createPanel(shadow) {
         ]),
       );
     }
+
+    bodyEl.appendChild(
+      h('div', { class: 'note-row' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '重排',
+          disabled: state.status === 'running',
+          onclick: () => runOne('beats'),
+        }),
+      ]),
+    );
   }
 
   /* ---------------- 梦中梦 ---------------- */
@@ -844,25 +877,19 @@ export function createPanel(shadow) {
     refreshBtn.disabled = running;
     refreshBtn.classList.toggle('spin', running);
 
+    // 底栏只显示状态，重跑按钮下放到各页面，各跑各的
     clear(footEl);
     footEl.appendChild(statusEl);
 
-    const beatsBtn = h('button', {
-      class: 'mini-btn',
-      text: '节拍',
-      title: '生成亲密戏节拍表',
-      disabled: running,
-      onclick: () => trigger('beats'),
-    });
-
-    const mainBtn = h('button', {
-      class: 'mini-btn primary',
-      text: running ? '取消' : '重跑',
-      onclick: () => (running ? cancel() : trigger('refresh')),
-    });
-
-    footEl.appendChild(beatsBtn);
-    footEl.appendChild(mainBtn);
+    if (running) {
+      footEl.appendChild(
+        h('button', {
+          class: 'mini-btn',
+          text: '取消',
+          onclick: () => cancel(),
+        }),
+      );
+    }
   }
 
   /* ---------------- 设置页 ---------------- */
