@@ -9,12 +9,12 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.4.2';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.4.2';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.4.2';
-import { buildTool, readToolArgs } from './tools.js?v=2.4.2';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.4.2';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.4.2';
+import { completeWithRetry } from './api.js?v=2.5.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.5.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.5.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.5.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.5.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.5.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -139,16 +139,19 @@ function assembleMessages(settings, material, task) {
  * 渠道不支持 tools 时自动降级回文本，不让整轮失败。
  */
 async function callTask(ch, task, messages, opts, settings) {
-  const tool = settings.useToolChannel ? buildTool(task) : null;
+  // 流式下拿不到可靠的 tool_calls，所以流式时不走工具通道
+  const stream = !!ch.stream;
+  const tool = settings.useToolChannel && !stream ? buildTool(task) : null;
 
   if (!tool) {
-    const res = await completeWithRetry(ch, messages, opts);
+    const res = await completeWithRetry(ch, messages, { ...opts, stream });
     return { ...res, args: null };
   }
 
   try {
     const res = await completeWithRetry(ch, messages, {
       ...opts,
+      stream,
       tools: [tool],
       toolChoice: 'auto',
     });
@@ -159,7 +162,7 @@ async function callTask(ch, task, messages, opts, settings) {
     throw new Error('工具通道返回空');
   } catch (e) {
     console.warn('[推进台] 工具通道失败，降级文本', e);
-    const res = await completeWithRetry(ch, messages, opts);
+    const res = await completeWithRetry(ch, messages, { ...opts, stream });
     return { ...res, args: null, degraded: true };
   }
 }

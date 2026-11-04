@@ -15,8 +15,8 @@
  * 声明自己不用工具，是这类拦截器通用的放行信号。
  */
 
-import { getCtx } from './ctx.js?v=2.4.2';
-import { markSelf } from './inspect.js?v=2.4.2';
+import { getCtx } from './ctx.js?v=2.5.0';
+import { markSelf } from './inspect.js?v=2.5.0';
 
 export const GENERATE_URL = '/api/backends/chat-completions/generate';
 
@@ -57,6 +57,11 @@ export function buildRequestBody(channel, messages, stream, opts = {}) {
     // 默认声明「不用工具」，这是给第三方 fetch 拦截器的放行信号
     tool_choice: 'none',
   };
+
+  // top_p 只在用户明确设了才发，避免某些渠道不认这个参数
+  if (typeof channel.topP === 'number' && channel.topP > 0 && channel.topP < 1) {
+    body.top_p = channel.topP;
+  }
 
   // 工具通道：主动挂上 tools，让模型把内容填进 arguments 而不是正文。
   // 好处见 core/tools.js 的注释——不是不会截断，是断得能救、触发审查的概率低。

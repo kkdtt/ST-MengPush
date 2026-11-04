@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.4.2';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.5.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.4.2';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.4.2';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.4.2';
-import { parsePreset } from '../core/import.js?v=2.4.2';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.4.2';
-import { testChannel } from '../core/api.js?v=2.4.2';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.4.2';
+} from '../core/engine.js?v=2.5.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.5.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.5.0';
+import { parsePreset } from '../core/import.js?v=2.5.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.5.0';
+import { testChannel } from '../core/api.js?v=2.5.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.5.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -1013,6 +1013,67 @@ export function createPanel(shadow) {
     gre.appendChild(h('div', { class: 'row' }, [h('label', { text: '摘要正则' }), sumRe]));
     box.appendChild(gre);
 
+    /* --- 配置备份 --- */
+    const gbak = h('div', { class: 'set-group' }, [h('h4', { text: '配置备份' })]);
+    gbak.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        text: '导出包含渠道（含密钥）、全部参数与提示词。换设备或重装时用它一次性恢复。',
+      }),
+    );
+
+    const impInput = h('input', {
+      type: 'file',
+      accept: '.json,application/json',
+      style: { display: 'none' },
+      onchange: async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        try {
+          importConfig(await file.text());
+          setStatus('配置已导入');
+          renderSettings();
+        } catch (err) {
+          setStatus('导入失败：' + (err?.message || err), 'err');
+        }
+      },
+    });
+
+    gbak.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '导出配置',
+          onclick: () => {
+            try {
+              const text = exportConfig();
+              const blob = new Blob([text], { type: 'application/json' });
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = `meng-push-config-${new Date().toISOString().slice(0, 10)}.json`;
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                URL.revokeObjectURL(a.href);
+                a.remove();
+              }, 1000);
+              setStatus('已导出');
+            } catch (err) {
+              setStatus('导出失败：' + (err?.message || err), 'err');
+            }
+          },
+        }),
+        h('button', {
+          class: 'mini-btn',
+          text: '导入配置',
+          onclick: () => impInput.click(),
+        }),
+        impInput,
+      ]),
+    );
+    box.appendChild(gbak);
+
     /* --- 预设导入 --- */
     const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '预设导入' })]);
     g6.appendChild(
@@ -1443,9 +1504,54 @@ export function createPanel(shadow) {
       },
     });
 
+    const topPInput = h('input', {
+      type: 'number',
+      min: '0',
+      max: '1',
+      step: '0.05',
+      value: String(ch.topP ?? 0.95),
+      onchange: (e) => {
+        ch.topP = Number(e.target.value);
+        const list = getSettings().channels.map((c) => (c.id === ch.id ? ch : c));
+        patchSettings({ channels: list });
+      },
+    });
+
+    const streamChk = h('input', {
+      type: 'checkbox',
+      onchange: (e) => {
+        ch.stream = e.target.checked;
+        const list = getSettings().channels.map((c) => (c.id === ch.id ? ch : c));
+        patchSettings({ channels: list });
+      },
+    });
+    streamChk.checked = !!ch.stream;
+
     body.appendChild(
-      h('div', { class: 'row' }, [h('label', { text: '温度' }), tempInput, h('label', { text: '上限' }), maxInput]),
+      h('div', { class: 'row' }, [
+        h('label', { text: '温度' }),
+        tempInput,
+        h('label', { text: 'TopP' }),
+        topPInput,
+      ]),
     );
+
+    body.appendChild(
+      h('div', { class: 'row' }, [
+        h('label', { text: '上限' }),
+        maxInput,
+        h('label', { class: 'switch inline' }, [streamChk, h('span', { text: '流式' })]),
+      ]),
+    );
+
+    if (ch.stream) {
+      body.appendChild(
+        h('div', {
+          class: 'prompt-hint',
+          text: '流式下拿不到可靠的 tool_calls，工具通道会自动退回文本通道。',
+        }),
+      );
+    }
 
     const testBtn = h('button', {
       class: 'mini-btn',

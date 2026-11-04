@@ -1,4 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.4.2';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.5.0';
+import { VERSION } from './version.js?v=2.5.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -136,6 +137,7 @@ export function newChannel(overrides = {}) {
     key: '',
     model: '',
     temperature: 0.95,
+    topP: 0.95,
     maxTokens: 900,
     timeoutSec: 90,
     stream: false,
@@ -170,4 +172,40 @@ export function maskKey(key) {
   const s = String(key);
   if (s.length <= 8) return '•'.repeat(s.length);
   return s.slice(0, 4) + '•'.repeat(Math.min(12, s.length - 8)) + s.slice(-4);
+}
+
+/* ---------------- 配置备份 ---------------- */
+
+/** 导出：渠道（含密钥）、全部参数、提示词。换设备或重装时用它恢复。 */
+export function exportConfig() {
+  return JSON.stringify(
+    {
+      _type: 'meng-push-config',
+      version: VERSION,
+      exportedAt: new Date().toISOString(),
+      settings: get(),
+    },
+    null,
+    2,
+  );
+}
+
+/** 导入：与默认值深合并，缺的字段自动补，多的字段忽略。 */
+export function importConfig(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('不是合法的 JSON 文件');
+  }
+
+  const incoming = data?.settings || data;
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    throw new Error('文件里没有可用的设置对象');
+  }
+
+  cache = merge(defaults(), incoming);
+  if (!Array.isArray(cache.channels)) cache.channels = [];
+  save();
+  return cache;
 }

@@ -1345,3 +1345,21 @@ textarea {
   font-size: 10.5px;
   color: var(--warn);
 }
+
+.switch.inline {
+  display: inline-flex;
+  padding: 0;
+  margin-left: auto;
+  gap: 6px;
+}
+.switch.inline input {
+  width: 28px;
+  height: 16px;
+}
+.switch.inline input::after {
+  width: 10px;
+  height: 10px;
+}
+.switch.inline input:checked::after {
+  transform: translateX(12px);
+}

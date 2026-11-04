@@ -481,5 +481,22 @@ eq('大纲对象输入', engine.parseOutline({ outline: [{ n: 1, title: '拉链'
 eq('步骤对象输入', engine.parseSteps({ steps: [{ n: 1, text: '写她插钥匙' }] })[0].text, '写她插钥匙');
 eq('梦中梦对象输入', engine.parseDream({ say: '**坐。**' }).say, '坐。');
 
+// 渠道参数
+const chTopP = { ...ch, topP: 0.7 };
+eq('top_p 进请求体', buildRequestBody(chTopP, [], false).top_p, 0.7);
+ok('topP 为 1 时不发', !('top_p' in buildRequestBody({ ...ch, topP: 1 }, [], false)));
+
+// 配置导入导出
+const exported = JSON.parse(settingsMod.exportConfig());
+ok('导出含渠道', Array.isArray(exported.settings.channels));
+ok('导出含提示词', typeof exported.settings.prompts === 'object');
+ok('导出带版本号', typeof exported.version === 'string');
+ok('导出带时间', typeof exported.exportedAt === 'string');
+
+settingsMod.importConfig(JSON.stringify({ settings: { choiceCount: 9 } }));
+eq('导入后自定义值生效', settingsMod.get().choiceCount, 9);
+ok('导入后默认值补齐', typeof settingsMod.get().dreamMaxTokens === 'number');
+eq('导入非法内容会报错', (() => { try { settingsMod.importConfig('不是json'); return 'no'; } catch { return 'ok'; } })(), 'ok');
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);
