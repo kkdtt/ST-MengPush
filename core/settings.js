@@ -1,5 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.9.1';
-import { VERSION } from './version.js?v=2.9.1';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.9.2';
+import { VERSION } from './version.js?v=2.9.2';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -15,11 +15,14 @@ export function defaults() {
     autoDelay: 700,
 
     modules: {
+      /** 下面这几个开关只决定「正文写完自动跑」时跑不跑，手动点按钮不受影响 */
       choices: true,
       /** 弹幕按概率触发，不是每轮都出 */
       danmaku: true,
       /** 节拍表只在手动点「节拍」时生成，不参与自动流程 */
       beats: false,
+      /** 反派行动与走向互斥，同时开会多跑一次 */
+      moves: false,
     },
 
     choiceCount: 5,
