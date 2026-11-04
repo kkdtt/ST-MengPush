@@ -1108,6 +1108,15 @@ export function createPanel(shadow) {
             renderSettings();
           },
         }),
+        h('button', {
+          class: 'mini-btn',
+          text: '清除旁路上下文',
+          title: '把之前设为「旁路上下文」的那份 payload 撤掉',
+          onclick: () => {
+            writeChatMeta('meng_push_external_context', '');
+            setStatus('已清除，旁路恢复自己拼装');
+          },
+        }),
       ]),
     );
 

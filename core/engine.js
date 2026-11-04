@@ -11,7 +11,7 @@
 
 import { completeWithRetry } from './api.js?v=1.7.0';
 import { readChatMeta, writeChatMeta } from './ctx.js?v=1.7.0';
-import { buildSnapshot, collectContext, parseJSON } from './parse.js?v=1.7.0';
+import { buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=1.7.0';
 import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=1.7.0';
 import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.7.0';
 
@@ -140,9 +140,11 @@ export async function run(opts = {}) {
 
   emit({ status: 'running', stage: '整理上下文', error: '', result: { ...result } });
 
-  const snapshot = buildSnapshot(ctx, settings);
-  const base = snapshot + '\n\n---\n\n';
-  const kernel = getKernel(settings);
+  // system 装「世界法则」（内核 + 世界书 + 角色卡 + 背景 + 大总结），
+  // user 装「此刻的事实」（摘要 + 上一句 + 正文尾部）。
+  // 混在一起会让模型把设定当成用户提供的材料，服从度掉一截。
+  const sys = getKernel(settings) + '\n\n---\n\n' + buildSystemContext(ctx, settings);
+  const base = buildUserContext(ctx, settings) + '\n\n---\n\n';
 
   try {
     // 走向和弹幕并发：谁先回来谁先渲染，不用互相等。
@@ -158,7 +160,7 @@ export async function run(opts = {}) {
             const text = await completeWithRetry(
               ch,
               [
-                { role: 'system', content: kernel },
+                { role: 'system', content: sys },
                 { role: 'user', content: base + buildChoices(settings) },
               ],
               { signal: abort.signal, retries: settings.retries, stream: false },
@@ -186,7 +188,7 @@ export async function run(opts = {}) {
               const text = await completeWithRetry(
                 dmCh,
                 [
-                  { role: 'system', content: kernel },
+                  { role: 'system', content: sys },
                   { role: 'user', content: base + buildDanmaku(settings) },
                 ],
                 { signal: abort.signal, retries: 0, stream: false },
@@ -216,7 +218,7 @@ export async function run(opts = {}) {
             const text = await completeWithRetry(
               btCh,
               [
-                { role: 'system', content: kernel },
+                { role: 'system', content: sys },
                 { role: 'user', content: base + buildBeats(settings) },
               ],
               { signal: abort.signal, retries: 0, stream: false },
@@ -571,8 +573,8 @@ export async function runStory(action, params = {}) {
 
   try {
     const ctx = await collectContext(settings);
-    const base = buildSnapshot(ctx, settings) + '\n\n---\n\n';
-    const kernel = getKernel(settings);
+    const sys = getKernel(settings) + '\n\n---\n\n' + buildSystemContext(ctx, settings);
+    const base = buildUserContext(ctx, settings) + '\n\n---\n\n';
 
     if (action === 'outline') {
       const scale = params.scale || 'medium';
@@ -580,7 +582,7 @@ export async function runStory(action, params = {}) {
       const text = await completeWithRetry(
         ch,
         [
-          { role: 'system', content: kernel },
+          { role: 'system', content: sys },
           { role: 'user', content: base + buildOutline(settings, { keyword: params.keyword, scale, count }) },
         ],
         { signal: abort.signal, retries: settings.retries, stream: false },
@@ -596,7 +598,7 @@ export async function runStory(action, params = {}) {
       const text = await completeWithRetry(
         ch,
         [
-          { role: 'system', content: kernel },
+          { role: 'system', content: sys },
           { role: 'user', content: base + '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }) },
         ],
         { signal: abort.signal, retries: settings.retries, stream: false },
@@ -706,18 +708,23 @@ export async function runDream(input) {
 
   try {
     const ctx = await collectContext(settings);
-    const snapshot = buildSnapshot(ctx, settings);
 
     const historyText = history
       .map((m) => (m.role === 'user' ? '客人：' : '弥彦：') + m.text)
       .join('\n');
 
+    // 弥彦人格 + 世界规则 + 世界设定都进 system，铺子里的对话和当前局面进 user
+    const sys =
+      getPrompt('dream', settings) +
+      '\n\n---\n\n' +
+      getKernel(settings) +
+      '\n\n---\n\n' +
+      buildSystemContext(ctx, settings);
+
     const userMsg =
-      snapshot +
+      buildUserContext(ctx, settings) +
       (historyText ? '\n\n【铺子里的对话】\n' + historyText : '') +
       '\n\n【客人刚说】\n' + text;
-
-    const sys = getPrompt('dream', settings) + '\n\n---\n\n' + getKernel(settings);
 
     const raw = await completeWithRetry(
       ch,

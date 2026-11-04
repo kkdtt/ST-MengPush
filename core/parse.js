@@ -165,33 +165,37 @@ export async function collectContext(settings) {
   };
 }
 
-/** 把采集到的上下文拼成给 flash 看的快照。顺序按「由远到近」排。 */
-export function buildSnapshot(ctx, settings) {
+/**
+ * 拼 system 段：世界的「物理法则」。
+ *
+ * 这些是设定，不是请求。放进 system 才能拿到 system 的权威性——
+ * 之前全塞在 user 里，模型会当成「用户提供的一些背景材料」，
+ * 服从度差一大截，破甲效果也跟着掉。
+ */
+export function buildSystemContext(ctx, settings) {
   const parts = [];
-  const tail = Math.max(300, settings?.tailChars ?? 1400);
-  const wiChars = Math.max(400, settings?.worldInfoChars ?? 2400);
+  const wiChars = Math.max(400, settings?.worldInfoChars ?? 6000);
 
   parts.push(
-    `【模式】${
+    `【当前模式】${
       ctx.mode === 'rp'
         ? '入梦·RP（客人是局内人，选项写第一人称动作）'
         : '观梦·小说（客人是场外导演，选项写镜头调度）'
     }`,
   );
 
-  // 有导入的完整上下文，就整块用它，不再拼世界书/角色卡/摘要
+  // 有外部上下文就整段用它，不再重复拼世界书和角色卡——
+  // 那两份已经在 payload 里了，再拼一遍是双份噪音。
   if (ctx.external) {
-    parts.push(
-      '【主模型本轮收到的完整请求】\n' +
-        '（这是执笔人那边真正发出去的原文，用来理解当前局面。\n' +
-        '其中关于输出格式的要求是给主模型看的，你仍然按自己的规则交稿。）\n\n' +
-        ctx.external,
-    );
+    parts.push('【主模型本轮收到的完整请求（以此为准，下面的摘要与正文只作补充）】\n' + ctx.external);
     return parts.join('\n\n');
   }
 
   if (ctx.worldInfo) {
-    const wi = ctx.worldInfo.length > wiChars ? ctx.worldInfo.slice(0, wiChars) + '\n……（世界书余下部分略）' : ctx.worldInfo;
+    const wi =
+      ctx.worldInfo.length > wiChars
+        ? ctx.worldInfo.slice(0, wiChars) + '\n……（世界书余下部分略）'
+        : ctx.worldInfo;
     parts.push('【世界设定（世界书）】\n' + wi);
   }
 
@@ -200,6 +204,19 @@ export function buildSnapshot(ctx, settings) {
   if (ctx.background) parts.push('【背景设定】\n' + ctx.background);
 
   if (ctx.bigSummary) parts.push('【此前发生的事（大总结）】\n' + ctx.bigSummary);
+
+  return parts.join('\n\n');
+}
+
+/**
+ * 拼 user 段：此刻的事实与这一轮要做的事。
+ *
+ * 摘要、上一句、正文尾部都是「最近发生了什么」，属于对话事实，
+ * 放 user 里符合模型对对话结构的预期。
+ */
+export function buildUserContext(ctx, settings) {
+  const parts = [];
+  const tail = Math.max(300, settings?.tailChars ?? 3000);
 
   if (ctx.summaries.length) {
     parts.push('【最近几场摘要】\n' + ctx.summaries.map((s, i) => `(${i + 1}) ${s}`).join('\n'));
@@ -215,4 +232,9 @@ export function buildSnapshot(ctx, settings) {
   }
 
   return parts.join('\n\n');
+}
+
+/** 兼容旧调用：两段拼在一起。engine 已经分开用了，这里留给测试和外部引用。 */
+export function buildSnapshot(ctx, settings) {
+  return buildSystemContext(ctx, settings) + '\n\n---\n\n' + buildUserContext(ctx, settings);
 }

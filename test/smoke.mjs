@@ -271,6 +271,17 @@ ok('请求体确实发出', lastRequestBody?.model === 'gemini-2.5-flash');
 ok('提示词用了内核', String(lastRequestBody?.messages?.[0]?.content).includes('推进台'));
 ok('用户消息含快照', String(lastRequestBody?.messages?.[1]?.content).includes('最近几场摘要'));
 
+// system / user 的分工：设定进 system，事实进 user
+const sysMsg = String(lastRequestBody?.messages?.[0]?.content || '');
+const usrMsg = String(lastRequestBody?.messages?.[1]?.content || '');
+ok('世界书进 system', sysMsg.includes('旧城区常年下雨'));
+ok('角色卡进 system', sysMsg.includes('林晚'));
+ok('大总结进 system', sysMsg.includes('每周三来买同一款咖啡'));
+ok('世界书不在 user 重复', !usrMsg.includes('旧城区常年下雨'));
+ok('摘要留在 user', usrMsg.includes('最近几场摘要'));
+ok('正文留在 user', usrMsg.includes('冻的'));
+ok('system 只留设定不留正文', !sysMsg.includes('你怎么才来'));
+
 console.log('\n— 缓存 —');
 const cached = engine.getCached(2);
 ok('按 messageId 落缓存', !!cached && cached.choices.length === st.result.choices.length);
