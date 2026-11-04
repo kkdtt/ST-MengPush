@@ -15,8 +15,8 @@
  * 声明自己不用工具，是这类拦截器通用的放行信号。
  */
 
-import { getCtx } from './ctx.js?v=2.1.0';
-import { markSelf } from './inspect.js?v=2.1.0';
+import { getCtx } from './ctx.js?v=2.2.0';
+import { markSelf } from './inspect.js?v=2.2.0';
 
 export const GENERATE_URL = '/api/backends/chat-completions/generate';
 
@@ -167,14 +167,18 @@ export async function complete(channel, messages, opts = {}) {
     if (stream) {
       const content = await readSse(resp);
       if (!content) throw new ApiError('模型返回空内容');
-      return content;
+      // 流式拿不到可靠的 finish_reason，按 stop 处理（不做续写）
+      return { content, finishReason: 'stop' };
     }
 
     const data = await resp.json();
     if (data?.error) throw new ApiError(data.error.message || '上游返回错误');
     const content = extractContent(data);
     if (!content) throw new ApiError('模型返回空内容');
-    return content;
+
+    // finish_reason='length' 表示被输出上限截断，调用方可以据此续写
+    const finishReason = String(data?.choices?.[0]?.finish_reason || 'stop');
+    return { content, finishReason };
   } catch (e) {
     if (timedOut) throw new ApiError(`超时（>${timeoutSec} 秒）`);
     if (e?.name === 'AbortError') throw new ApiError('已取消');
@@ -208,9 +212,9 @@ export async function completeWithRetry(channel, messages, opts = {}) {
 /** 设置页的「测试」按钮用：发一句最短的话，确认渠道通。 */
 export async function testChannel(channel) {
   const t0 = Date.now();
-  const content = await complete(channel, [
+  const { content } = await complete(channel, [
     { role: 'system', content: '你是一个测试用的回显器。' },
     { role: 'user', content: '只回复两个字：通了' },
   ]);
-  return { ok: true, ms: Date.now() - t0, content: content.slice(0, 60) };
+  return { ok: true, ms: Date.now() - t0, content: String(content).slice(0, 60) };
 }

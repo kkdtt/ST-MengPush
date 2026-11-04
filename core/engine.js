@@ -9,11 +9,11 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.1.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.1.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.1.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.1.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.1.0';
+import { completeWithRetry } from './api.js?v=2.2.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.2.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.2.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.2.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.2.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -183,7 +183,7 @@ export async function run(opts = {}) {
         (async () => {
           emit({ stage: '生成中' });
           try {
-            const text = await completeWithRetry(
+            const { content: text } = await completeWithRetry(
               ch,
               assembleMessages(settings, material, buildChoices(settings)),
               { signal: abort.signal, retries: settings.retries, stream: false },
@@ -208,7 +208,7 @@ export async function run(opts = {}) {
             emit({ stage: '生成中' });
             try {
               const dmCh = channelFor('danmaku') || ch;
-              const text = await completeWithRetry(
+              const { content: text } = await completeWithRetry(
                 dmCh,
                 assembleMessages(settings, material, buildDanmaku(settings)),
                 { signal: abort.signal, retries: 0, stream: false },
@@ -235,7 +235,7 @@ export async function run(opts = {}) {
           emit({ stage: '排节拍' });
           try {
             const btCh = channelFor('beats') || ch;
-            const text = await completeWithRetry(
+            const { content: text } = await completeWithRetry(
               btCh,
               assembleMessages(settings, material, buildBeats(settings)),
               { signal: abort.signal, retries: 0, stream: false },
@@ -595,7 +595,7 @@ export async function runStory(action, params = {}) {
     if (action === 'outline') {
       const scale = params.scale || 'medium';
       const count = SCALE_COUNT[scale] || 4;
-      const text = await completeWithRetry(
+      const { content: text } = await completeWithRetry(
         ch,
         [
           assembleMessages(
@@ -614,7 +614,7 @@ export async function runStory(action, params = {}) {
       if (!story.outline?.length) throw new Error('还没有大纲，先出大纲');
       const count = Math.min(12, Math.max(2, params.count || 5));
       const outlineText = story.outline.map((o) => `${o.n}. ${o.title ? o.title + '：' : ''}${o.text}`).join('\n');
-      const text = await completeWithRetry(
+      const { content: text } = await completeWithRetry(
         ch,
         [
           assembleMessages(
@@ -706,8 +706,31 @@ export function stripMarkdown(text) {
 
 export function parseDream(text) {
   const raw = String(text || '');
-  const m = /<say>([\s\S]*?)<\/say>/i.exec(raw);
-  const say = stripMarkdown(m ? m[1].trim() : stripTags(raw));
+
+  // 续写可能产生多个 <say> 块，全部按顺序拼起来
+  const blocks = [...raw.matchAll(/<say>([\s\S]*?)<\/say>/gi)]
+    .map((m) => m[1].trim())
+    .filter(Boolean);
+
+  let say = blocks.join('\n\n');
+
+  if (blocks.length) {
+    // 续写的内容通常没有包 <say>，会落在最后一个 </say> 之后，也算正文
+    const lastClose = raw.lastIndexOf('</say>');
+    if (lastClose >= 0) {
+      const tail = raw
+        .slice(lastClose + 6)
+        .replace(/<(option|dm)\b[\s\S]*?<\/\1>/gi, '')
+        .replace(/<[^>]+>/g, '')
+        .trim();
+      if (tail) say = say ? say + '\n\n' + tail : tail;
+    }
+  } else {
+    say = stripTags(raw);
+  }
+
+  say = stripMarkdown(say);
+
   return {
     say: say || '（他没说话，只是把灯挪近了一点。）',
     choices: parseChoices(raw, 6),
@@ -766,20 +789,48 @@ export async function runDream(input) {
       (historyText ? '\n\n【铺子里的对话】\n' + historyText : '') +
       '\n\n【客人刚说】\n' + text;
 
-    const raw = await completeWithRetry(
-      ch,
-      [
-        { role: 'system', content: sys },
-        { role: 'user', content: userMsg },
-      ],
-      {
-        signal: abort.signal,
-        retries: settings.retries,
-        stream: false,
-        // 梦中梦要回答长问题，单独给输出上限，否则半句话就断
-        maxTokens: settings.dreamMaxTokens || 4000,
-      },
-    );
+    const baseMessages = [
+      { role: 'system', content: sys },
+      { role: 'user', content: userMsg },
+    ];
+    const reqOpts = {
+      signal: abort.signal,
+      retries: settings.retries,
+      stream: false,
+      // 梦中梦要回答长问题，单独给输出上限，否则半句话就断
+      maxTokens: settings.dreamMaxTokens || 4000,
+    };
+
+    let { content: raw, finishReason: fin } = await completeWithRetry(ch, baseMessages, reqOpts);
+
+    // finish_reason='length' 说明撞上输出上限。自动续写，最多两轮。
+    // 续写时不重发整个上下文，而是把已生成的内容作为 assistant 消息接上，
+    // 让它「接着往下写」——这是唯一真正能绕过长度限制的办法。
+    let guard = 0;
+    while (fin === 'length' && guard < 2 && !abort.signal.aborted) {
+      guard++;
+      emit({ stage: `续写 ${guard}` });
+      try {
+        const cont = await completeWithRetry(
+          ch,
+          [
+            ...baseMessages,
+            { role: 'assistant', content: raw },
+            {
+              role: 'user',
+              content: '接着上一句往下写。不要重复已经写过的字，不要重新开头，不要写 <say> 标签。',
+            },
+          ],
+          reqOpts,
+        );
+        if (!cont.content || !cont.content.trim()) break;
+        raw += cont.content;
+        fin = cont.finishReason;
+      } catch (e) {
+        console.warn('[推进台] 续写失败，用已生成的部分', e);
+        break;
+      }
+    }
 
     const parsed = parseDream(raw);
     const messages = [

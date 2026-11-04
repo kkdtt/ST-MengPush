@@ -99,8 +99,31 @@ globalThis.window = {
 
 let lastRequestBody = null;
 
+globalThis.__dreamCall = 0;
+
 globalThis.fetch = async (url, opt) => {
   lastRequestBody = JSON.parse(opt.body);
+  const sysMsg = String(lastRequestBody.messages?.[0]?.content || '');
+
+  // 梦中梦的人格提示词里有「铺子」，内核里没有——用这个区分两条链路
+  if (sysMsg.includes('铺子')) {
+    globalThis.__dreamCall += 1;
+    const first = globalThis.__dreamCall === 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: { content: first ? '<say>前半句，撞到上限' : '后半句，接着写完</say>' },
+            finish_reason: first ? 'length' : 'stop',
+          },
+        ],
+      }),
+      text: async () => '',
+    };
+  }
+
   const payload = {
     choices: [
       { type: '顺承', text: '把咖啡递过去一罐', risk: '低' },
@@ -111,7 +134,9 @@ globalThis.fetch = async (url, opt) => {
   return {
     ok: true,
     status: 200,
-    json: async () => ({ choices: [{ message: { content: '```json\n' + JSON.stringify(payload) + '\n```' } }] }),
+    json: async () => ({
+      choices: [{ message: { content: '```json\n' + JSON.stringify(payload) + '\n```' }, finish_reason: 'stop' }],
+    }),
     text: async () => '',
   };
 };
@@ -374,9 +399,16 @@ eq('列表换成圆点', engine.stripMarkdown('- 一\n- 二'), '· 一\n· 二')
 ok('分隔线被清掉', !engine.stripMarkdown('上\n---\n下').includes('---'));
 ok('parseDream 里已清理', !engine.parseDream('<say>**坐。**线还热着。</say>').say.includes('**'));
 
-// 梦中梦用更大的输出上限
+// 梦中梦用更大的输出上限，并在被截断时自动续写
+globalThis.__dreamCall = 0;
 await engine.runDream('林晚现在在想什么');
 eq('梦中梦上限覆盖渠道默认', lastRequestBody.max_tokens, s.dreamMaxTokens || 4000);
+eq('触发了一次续写（共两次请求）', globalThis.__dreamCall, 2);
+
+const dreamMsgs = engine.getDream().messages;
+const lastSay = dreamMsgs[dreamMsgs.length - 1]?.text || '';
+ok('续写内容已拼接', lastSay.includes('前半句') && lastSay.includes('后半句'), lastSay.slice(0, 60));
+ok('续写后没有残留标签', !/<\/?say>/.test(lastSay));
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);
