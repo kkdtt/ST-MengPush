@@ -15,8 +15,8 @@
  * 声明自己不用工具，是这类拦截器通用的放行信号。
  */
 
-import { getCtx } from './ctx.js?v=2.0.0';
-import { markSelf } from './inspect.js?v=2.0.0';
+import { getCtx } from './ctx.js?v=2.1.0';
+import { markSelf } from './inspect.js?v=2.1.0';
 
 export const GENERATE_URL = '/api/backends/chat-completions/generate';
 
@@ -122,6 +122,12 @@ export async function complete(channel, messages, opts = {}) {
 
   const stream = !!opts.stream;
   const body = buildRequestBody(channel, messages, stream);
+
+  // 允许单次请求覆盖输出上限——出选项用 900 就够，
+  // 梦中梦要回答长问题，得单独给大一点，否则半句话就断
+  if (opts.maxTokens && Number(opts.maxTokens) > 0) {
+    body.max_tokens = Math.round(Number(opts.maxTokens));
+  }
   const timeoutSec = Math.max(10, channel.timeoutSec || 90);
 
   const ctrl = new AbortController();

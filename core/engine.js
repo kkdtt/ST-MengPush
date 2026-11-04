@@ -9,11 +9,11 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.0.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.0.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.0.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.0.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.0.0';
+import { completeWithRetry } from './api.js?v=2.1.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.1.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.1.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.1.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.1.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -686,10 +686,28 @@ function stripTags(text) {
     .trim();
 }
 
+/**
+ * 清掉 markdown 标记。
+ * 弥彦是个坐在铺子里说话的人，不该满口 **加粗** 和 #### 标题。
+ * 模型很爱用它，靠提示词约束不完全管用，这里再兜一层。
+ */
+export function stripMarkdown(text) {
+  return String(text || '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*_]{3,}\s*$/gm, '')
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    .replace(/__([^_\n]+)__/g, '$1')
+    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/^\s*[-*+]\s+/gm, '· ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export function parseDream(text) {
   const raw = String(text || '');
   const m = /<say>([\s\S]*?)<\/say>/i.exec(raw);
-  const say = m ? m[1].trim() : stripTags(raw);
+  const say = stripMarkdown(m ? m[1].trim() : stripTags(raw));
   return {
     say: say || '（他没说话，只是把灯挪近了一点。）',
     choices: parseChoices(raw, 6),
@@ -754,7 +772,13 @@ export async function runDream(input) {
         { role: 'system', content: sys },
         { role: 'user', content: userMsg },
       ],
-      { signal: abort.signal, retries: settings.retries, stream: false },
+      {
+        signal: abort.signal,
+        retries: settings.retries,
+        stream: false,
+        // 梦中梦要回答长问题，单独给输出上限，否则半句话就断
+        maxTokens: settings.dreamMaxTokens || 4000,
+      },
     );
 
     const parsed = parseDream(raw);

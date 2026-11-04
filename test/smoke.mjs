@@ -366,5 +366,17 @@ ok('中文四字约三 token', Math.abs(insp.estimateTokens('你好世界') - 3)
 eq('空串零 token', insp.estimateTokens(''), 0);
 ok('英文也有 token', insp.estimateTokens('hello world') >= 2);
 
+// markdown 清理
+eq('清掉加粗', engine.stripMarkdown('**重点**'), '重点');
+eq('清掉标题', engine.stripMarkdown('#### 标题'), '标题');
+eq('清掉行内代码', engine.stripMarkdown('`code`'), 'code');
+eq('列表换成圆点', engine.stripMarkdown('- 一\n- 二'), '· 一\n· 二');
+ok('分隔线被清掉', !engine.stripMarkdown('上\n---\n下').includes('---'));
+ok('parseDream 里已清理', !engine.parseDream('<say>**坐。**线还热着。</say>').say.includes('**'));
+
+// 梦中梦用更大的输出上限
+await engine.runDream('林晚现在在想什么');
+eq('梦中梦上限覆盖渠道默认', lastRequestBody.max_tokens, s.dreamMaxTokens || 4000);
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

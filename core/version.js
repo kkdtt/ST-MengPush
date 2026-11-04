@@ -1,2 +1,2 @@
 /** 由 scripts/bump-version.mjs 自动生成，不要手改。 */
-export const VERSION = '2.0.0';
+export const VERSION = '2.1.0';
