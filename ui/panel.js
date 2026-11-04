@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.3.1';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.3.2';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.3.1';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.3.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.3.1';
-import { parsePreset } from '../core/import.js?v=2.3.1';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.3.1';
-import { testChannel } from '../core/api.js?v=2.3.1';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.3.1';
+} from '../core/engine.js?v=2.3.2';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.3.2';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.3.2';
+import { parsePreset } from '../core/import.js?v=2.3.2';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.3.2';
+import { testChannel } from '../core/api.js?v=2.3.2';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.3.2';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -1117,6 +1117,13 @@ export function createPanel(shadow) {
     box.appendChild(g7);
   }
 
+  /** tool_choice 可能是字符串也可能是 {type,function:{name}} 对象 */
+  function fmtChoice(v) {
+    if (v === null || v === undefined || v === '') return '-';
+    if (typeof v === 'string') return v;
+    return v?.function?.name || v?.type || JSON.stringify(v);
+  }
+
   /** token 数按 k 显示，太长了挤不下 */
   function fmtTokens(n) {
     const v = Number(n) || 0;
@@ -1227,7 +1234,7 @@ export function createPanel(shadow) {
     body.appendChild(
       h('div', {
         class: 'rec-param',
-        text: `model ${r.model || '-'}　temp ${r.temperature ?? '-'}　max_tokens ${r.maxTokens ?? '-'}　tool_choice ${r.toolChoice || '-'}　stream ${r.stream}`,
+        text: `model ${r.model || '-'}　temp ${r.temperature ?? '-'}　max_tokens ${r.maxTokens ?? '-'}　tool_choice ${fmtChoice(r.toolChoice)}　stream ${r.stream}`,
       }),
     );
 

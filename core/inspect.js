@@ -122,7 +122,10 @@ function capture(url, bodyText) {
     temperature: body?.temperature,
     maxTokens: body?.max_tokens,
     stream: !!body?.stream,
-    toolChoice: String(body?.tool_choice || ''),
+    toolChoice: body?.tool_choice ?? null,
+    // 原始请求体：字段结构和上面这些不一致时，靠它兜底排查
+    rawBody: bodyText.length > 400000 ? bodyText.slice(0, 400000) + '\n…（已截断）' : bodyText,
+    bodyKeys: Object.keys(body || {}),
     tools,
     hijacked,
     count: messages.length,
