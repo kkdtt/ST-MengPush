@@ -309,10 +309,10 @@ eq('非法 type 归到顺承', st.result.choices[2]?.type, '顺承');
 eq('风险字段保留', st.result.choices[1]?.risk, '高');
 ok('结果带 messageId', typeof st.result?.messageId === 'number' && st.result.messageId === 2);
 ok('请求体确实发出', lastRequestBody?.model === 'gemini-2.5-flash');
-ok('提示词用了内核', String(lastRequestBody?.messages?.[0]?.content).includes('推进台'));
+ok('提示词用了内核', String(lastRequestBody?.messages?.[0]?.content).includes('弥彦'));
 // 五段式结构
 const M = lastRequestBody?.messages || [];
-ok('第 1 段是 system 内核', M[0]?.role === 'system' && M[0].content.includes('推进台'));
+ok('第 1 段是 system 内核', M[0]?.role === 'system' && M[0].content.includes('弥彦'));
 ok('第 2 段是 assistant 认领', M[1]?.role === 'assistant' && M[1].content.length > 20);
 ok('第 3 段是 system 资料', M[2]?.role === 'system' && M[2].content.includes('旧城区常年下雨'));
 ok('资料段含角色卡', M[2].content.includes('林晚'));
