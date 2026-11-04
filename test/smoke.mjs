@@ -371,6 +371,23 @@ insp.markSelf(-1);
 ok('自身请求被标出来', insp.getRecords()[0].self === true);
 eq('最多保留八条', (() => { for (let i = 0; i < 12; i++) insp.getRecords(); return insp.getRecords().length; })(), 2);
 
+// 工具定义与接管识别
+await globalThis.fetch('/api/backends/chat-completions/generate', {
+  method: 'POST',
+  body: JSON.stringify({
+    model: 'x',
+    messages: [{ role: 'system', content: '[STRUCTURED_TRANSFER] 预设脚本改写过的请求' }],
+    tools: [{ type: 'function', function: { name: 'mh_scene', description: '场景', parameters: {} } }],
+    tool_choice: 'required',
+  }),
+});
+const toolRec = insp.getRecords()[0];
+ok('记录了 tools', toolRec.tools.length === 1, '实际 ' + toolRec.tools.length);
+eq('工具名记对', toolRec.tools[0].name, 'mh_scene');
+eq('tool_choice 记对', toolRec.toolChoice, 'required');
+ok('识别出被脚本接管', toolRec.hijacked === true);
+ok('token 估算含 tools', toolRec.tokens > 0);
+
 insp.clearRecords();
 eq('清空后为零', insp.getRecords().length, 0);
 

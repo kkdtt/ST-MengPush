@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.3.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.3.1';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.3.0';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.3.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.3.0';
-import { parsePreset } from '../core/import.js?v=2.3.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.3.0';
-import { testChannel } from '../core/api.js?v=2.3.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.3.0';
+} from '../core/engine.js?v=2.3.1';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=2.3.1';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.3.1';
+import { parsePreset } from '../core/import.js?v=2.3.1';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.3.1';
+import { testChannel } from '../core/api.js?v=2.3.1';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.3.1';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -1214,6 +1214,7 @@ export function createPanel(shadow) {
     const wrap = h('details', { class: 'rec' }, [
       h('summary', { class: 'rec-sum' }, [
         h('span', { class: 'rec-tag ' + (r.self ? 'self' : 'main'), text: r.self ? '推进台' : '主对话' }),
+        r.hijacked ? h('span', { class: 'rec-tag hijack', text: '被脚本接管' }) : null,
         h('span', { class: 'rec-time', text: time }),
         h('span', {
           class: 'rec-meta',
@@ -1226,7 +1227,7 @@ export function createPanel(shadow) {
     body.appendChild(
       h('div', {
         class: 'rec-param',
-        text: `model ${r.model || '-'}　temp ${r.temperature ?? '-'}　max_tokens ${r.maxTokens ?? '-'}　stream ${r.stream}`,
+        text: `model ${r.model || '-'}　temp ${r.temperature ?? '-'}　max_tokens ${r.maxTokens ?? '-'}　tool_choice ${r.toolChoice || '-'}　stream ${r.stream}`,
       }),
     );
 
@@ -1260,7 +1261,10 @@ export function createPanel(shadow) {
           class: 'mini-btn',
           text: '复制全文',
           onclick: async () => {
-            const full = r.messages.map((m) => `[${m.role}]\n${m.content}`).join('\n\n');
+            const full = [
+              ...r.messages.map((m) => `[${m.role}]\n${m.content}`),
+              ...(r.tools || []).map((t) => `[tool ${t.name}]\n${t.raw}`),
+            ].join('\n\n');
             try {
               await navigator.clipboard.writeText(full);
               setStatus('已复制到剪贴板');

@@ -93,6 +93,26 @@ function capture(url, bodyText) {
     content: String(m?.content ?? ''),
   }));
 
+  // tools 也要记——预设脚本开了 packContext 时，整段上下文被挪进工具说明，
+  // 对话里只剩几条流水线消息，光看 messages 等于什么都没看到。
+  const tools = Array.isArray(body?.tools)
+    ? body.tools.map((t) => {
+        const fn = t?.function || {};
+        const raw = JSON.stringify(fn, null, 2);
+        return {
+          name: String(fn.name || ''),
+          desc: String(fn.description || '').slice(0, 300),
+          raw,
+          chars: raw.length,
+        };
+      })
+    : [];
+
+  // 判断这条请求是不是被别的脚本接管过：出现预设脚本的标记，或工具名不是我们自己的
+  const hijacked =
+    tools.some((t) => t.name === 'mh_scene') ||
+    messages.some((m) => /\[STRUCTURED_TRANSFER\]|\[ROUTER\]|\[DIRECTIVE\]/.test(m.content));
+
   records.unshift({
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     at: Date.now(),
@@ -102,9 +122,14 @@ function capture(url, bodyText) {
     temperature: body?.temperature,
     maxTokens: body?.max_tokens,
     stream: !!body?.stream,
+    toolChoice: String(body?.tool_choice || ''),
+    tools,
+    hijacked,
     count: messages.length,
     chars: messages.reduce((n, m) => n + m.content.length, 0),
-    tokens: messages.reduce((n, m) => n + estimateTokens(m.content), 0),
+    tokens:
+      messages.reduce((n, m) => n + estimateTokens(m.content), 0) +
+      tools.reduce((n, t) => n + estimateTokens(t.raw), 0),
     messages,
   });
 

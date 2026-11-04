@@ -1312,3 +1312,36 @@ textarea {
   font-size: 10.5px;
   color: var(--fg-faint);
 }
+
+.rec-tag.hijack {
+  background: rgba(214, 169, 95, 0.18);
+  color: var(--warn);
+}
+.rec-role.tool {
+  color: var(--warn);
+}
+.rec-tools {
+  margin: 4px 0 4px 8px;
+  border-left: 2px solid var(--line);
+}
+.rec-tools > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+.rec-tools > summary::-webkit-details-marker {
+  display: none;
+}
+.rec-tool {
+  padding: 0 0 6px 8px;
+}
+.rec-tool-name {
+  margin-bottom: 3px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--warn);
+}
