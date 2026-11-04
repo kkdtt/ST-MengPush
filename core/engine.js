@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.9.4';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.9.4';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.9.4';
-import { attachResult } from './inspect.js?v=2.9.4';
-import { buildTool, readToolArgs } from './tools.js?v=2.9.4';
-import { buildBeats, buildChoices, buildDanmaku, buildMoves, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.9.4';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.9.4';
+import { completeWithRetry } from './api.js?v=2.10.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.10.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.10.0';
+import { attachResult } from './inspect.js?v=2.10.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.10.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.10.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.10.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -32,6 +32,7 @@ const state = {
   history: [],
   story: null, // { keyword, scale, outline, moves, moveCount, busy }
   dream: null, // { messages: [{role, text, at, choices, danmaku}] }
+  profile: null, // 最近一次生成的完整角色档案（纯文本）
 };
 
 export function subscribe(fn) {
@@ -216,6 +217,7 @@ export async function run(opts = {}) {
     danmaku: Array.isArray(prev.danmaku) ? prev.danmaku : [],
     beats: Array.isArray(prev.beats) ? prev.beats : [],
     moves: Array.isArray(prev.moves) ? prev.moves : [],
+    intro: prev.intro || null,
     notes: { ...(prev.notes || {}) },
     at: Date.now(),
     messageId: ctx.lastBodyId,
@@ -322,6 +324,32 @@ export async function run(opts = {}) {
             result.moves = [];
             result.notes.moves = 'error:' + (e?.message || e);
             console.warn('[推进台] 反派行动生成失败', e);
+          } finally {
+            emit({ result: { ...result }, stage: '' });
+          }
+        })(),
+      );
+    }
+
+    /* ---- 新人介绍 ---- */
+    if (tasks.includes('intro') && !abort.signal.aborted) {
+      jobs.push(
+        (async () => {
+          emit({ stage: '在想一个新人' });
+          try {
+            const res = await callTask(
+              ch,
+              'intro',
+              assembleMessages(settings, material, buildIntro(settings)),
+              { signal: signalFor('intro', abort.signal), retries: 0, stream: false },
+              settings,
+            );
+            result.intro = parseIntro(res.args || res.content);
+            result.notes.intro = result.intro ? '' : 'empty';
+          } catch (e) {
+            result.intro = null;
+            result.notes.intro = 'error:' + (e?.message || e);
+            console.warn('[推进台] 新人介绍失败', e);
           } finally {
             emit({ result: { ...result }, stage: '' });
           }
@@ -877,6 +905,68 @@ export async function runStory(action, params = {}) {
   }
 }
 
+/**
+ * 把选中的新人展开成完整档案。
+ * 跟 runStory 不同，它是一次性的：生成完直接给文本，不存状态树。
+ */
+export async function runProfile(target) {
+  const settings = getSettings();
+  if (!settings.enabled) {
+    emit({ status: 'error', error: '推进台已关闭' });
+    return;
+  }
+
+  const ch = channelFor('choices');
+  if (!channelReady(ch)) {
+    emit({ status: 'error', error: '先去设置里配一个渠道' });
+    return;
+  }
+
+  const abort = new AbortController();
+  currentAbort = abort;
+  emit({ status: 'running', stage: '写档案', error: '', profile: null });
+
+  try {
+    const ctx = await collectContext(settings);
+    const material = buildMaterialContext(ctx, settings);
+
+    const introText = [
+      `姓名：${target?.name || ''}`,
+      target?.tag ? `定位：${target.tag}` : '',
+      target?.relation ? `关系：${target.relation}` : '',
+      target?.entry ? `由头：${target.entry}` : '',
+      target?.hook ? `细节：${target.hook}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const res = await callTask(
+      ch,
+      'profile',
+      assembleMessages(
+        settings,
+        material,
+        buildProfile(settings, { name: target?.name || '', intro: introText, template: target?.template || '' }),
+      ),
+      { signal: signalFor('profile', abort.signal), retries: settings.retries, stream: false },
+      settings,
+    );
+
+    const text = parseProfile(res.args?.profile || res.content);
+    if (!text) throw new Error('模型没给出档案');
+    emit({ status: 'idle', stage: '', profile: text });
+  } catch (e) {
+    if (abort.signal.aborted) {
+      emit({ status: 'idle', stage: '', error: '已取消' });
+    } else {
+      console.error('[推进台] 档案构建失败', e);
+      emit({ status: 'error', stage: '', error: e?.message || String(e) });
+    }
+  } finally {
+    if (currentAbort === abort) currentAbort = null;
+  }
+}
+
 /* ---------------- 梦中梦 ---------------- */
 
 const DREAM_KEY = 'meng_push_dream';
@@ -929,6 +1019,45 @@ export function stripMarkdown(text) {
     .replace(/^\s*[-*+]\s+/gm, '· ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+export function parseIntro(input) {
+  if (input && typeof input === 'object') {
+    const o = input.intro || input;
+    if (!o || !o.name) return null;
+    return {
+      name: String(o.name || '').trim(),
+      tag: String(o.tag || '').trim(),
+      relation: String(o.relation || '').trim(),
+      entry: String(o.entry || '').trim(),
+      hook: String(o.hook || '').trim(),
+    };
+  }
+
+  const raw = String(input || '');
+  const m = /<intro\b([^>]*)>([\s\S]*?)<\/intro>/i.exec(raw);
+  if (!m) return null;
+  const attrs = parseAttrs(m[1]);
+  const body = m[2];
+  const field = (name) => {
+    const hit = new RegExp(name + '\\s*[:：]\\s*([^\\n]+)', 'i').exec(body);
+    return hit ? hit[1].trim() : '';
+  };
+  const name = String(attrs.name || '').trim();
+  if (!name) return null;
+  return {
+    name,
+    tag: String(attrs.tag || '').trim(),
+    relation: field('relation'),
+    entry: field('entry'),
+    hook: field('hook'),
+  };
+}
+
+export function parseProfile(input) {
+  const raw = typeof input === 'string' ? input : JSON.stringify(input || '');
+  const m = /<profile>([\s\S]*?)<\/profile>/i.exec(raw);
+  return (m ? m[1] : stripTags(raw)).trim();
 }
 
 export function parseDream(input) {

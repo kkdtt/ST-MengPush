@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.9.4';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.10.0';
 import {
   cancel,
   clearHistory,
@@ -19,21 +19,22 @@ import {
   loadStory,
   run,
   runOne,
+  runProfile,
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.9.4';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.9.4';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.9.4';
-import { parsePreset } from '../core/import.js?v=2.9.4';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.9.4';
-import { testChannel } from '../core/api.js?v=2.9.4';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.9.4';
+} from '../core/engine.js?v=2.10.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.10.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.10.0';
+import { parsePreset } from '../core/import.js?v=2.10.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.10.0';
+import { testChannel } from '../core/api.js?v=2.10.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.10.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
   { id: 'choices', label: '走向' },
-  { id: 'danmaku', label: '场外' },
+  { id: 'intro', label: '新人' },
   { id: 'beats', label: '节拍' },
   { id: 'story', label: '创作' },
   { id: 'history', label: '往轮' },
@@ -209,8 +210,8 @@ export function createPanel(shadow) {
       const count =
         t.id === 'choices'
           ? state.result?.choices?.length || 0
-          : t.id === 'danmaku'
-            ? state.result?.danmaku?.length || 0
+          : t.id === 'intro'
+            ? state.result?.intro ? 1 : 0
             : t.id === 'beats'
               ? state.result?.beats?.length || 0
               : 0;
@@ -261,7 +262,7 @@ export function createPanel(shadow) {
     }
 
     if (activeTab === 'choices') renderChoices(state);
-    else if (activeTab === 'danmaku') renderDanmaku(state);
+    else if (activeTab === 'intro') renderIntro(state);
     else if (activeTab === 'beats') renderBeats(state);
     else if (activeTab === 'history') renderHistory(state);
 
@@ -444,29 +445,85 @@ export function createPanel(shadow) {
     );
   }
 
-  function renderDanmaku(state) {
-    const list = state.result?.danmaku || [];
-    const note = state.result?.notes?.danmaku || '';
+  function renderIntro(state) {
+    const it = state.result?.intro;
+    const note = state.result?.notes?.intro || '';
+    const running = state.status === 'running';
 
-    if (!list.length) {
-      bodyEl.appendChild(emptyWithNote(state, note, 'danmaku', {
-        running: '在看要不要刷……',
-        skipped: '这一轮没掷中',
-        empty: '模型判定这一场没什么可起哄的',
-        idle: '这一场还没有弹幕',
-      }));
+    if (!it) {
+      bodyEl.appendChild(
+        emptyWithNote(state, note, 'intro', {
+          running: '在想一个新人……',
+          empty: '模型没给出可用的人',
+          idle: '还没有新人',
+        }),
+      );
       return;
     }
 
-    bodyEl.appendChild(h('div', { class: 'section-label', text: '场外' }));
     bodyEl.appendChild(
-      h('div', { class: 'danmaku-wrap' }, list.map((d) => h('span', { class: 'danmaku', text: d }))),
-    );
-    bodyEl.appendChild(
-      h('div', { class: 'note-row' }, [
-        h('button', { class: 'mini-btn', text: '重刷', onclick: () => runOne('danmaku') }),
+      h('div', { class: 'intro-card' }, [
+        h('div', { class: 'intro-head' }, [
+          h('span', { class: 'intro-name', text: it.name }),
+          it.tag ? h('span', { class: 'intro-tag', text: it.tag }) : null,
+        ]),
+        it.relation ? h('div', { class: 'intro-line', text: '关系：' + it.relation }) : null,
+        it.entry ? h('div', { class: 'intro-line', text: '由头：' + it.entry }) : null,
+        it.hook ? h('div', { class: 'intro-line', text: '细节：' + it.hook }) : null,
       ]),
     );
+
+    const tpl = getSettings().profileTemplate || '1';
+    const tplSel = h(
+      'select',
+      { class: 'story-scale' },
+      [
+        { v: '1', t: '模板1 · 详细' },
+        { v: '2', t: '模板2 · 精简' },
+      ].map((o) =>
+        h('option', { value: o.v, text: o.t, selected: tpl === o.v }),
+      ),
+    );
+    tplSel.onchange = (e) => patchSettings({ profileTemplate: e.target.value });
+
+    bodyEl.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        tplSel,
+        h('button', {
+          class: 'mini-btn primary',
+          text: state.profile ? '重新写档案' : '构建档案',
+          disabled: running,
+          onclick: () => runProfile({ ...it, template: tplSel.value }),
+        }),
+        h('button', {
+          class: 'mini-btn',
+          text: '换一个',
+          disabled: running,
+          onclick: () => runOne('intro'),
+        }),
+      ]),
+    );
+
+    if (state.profile) {
+      bodyEl.appendChild(h('div', { class: 'section-label', text: '档案 · 复制后粘进世界书' }));
+      bodyEl.appendChild(h('pre', { class: 'profile-text', text: state.profile }));
+      bodyEl.appendChild(
+        h('div', { class: 'note-row' }, [
+          h('button', {
+            class: 'mini-btn',
+            text: '复制档案',
+            onclick: async () => {
+              try {
+                await navigator.clipboard.writeText(state.profile);
+                setStatus('已复制，去世界书新建条目粘进去');
+              } catch {
+                setStatus('复制失败，手动选中吧', 'err');
+              }
+            },
+          }),
+        ]),
+      );
+    }
   }
 
   function renderBeats(state) {
@@ -982,9 +1039,6 @@ export function createPanel(shadow) {
     );
     g1.appendChild(
       switchRow('自动跑走向', s.modules.choices, (v) => patchSettings({ modules: { choices: v } })),
-    );
-    g1.appendChild(
-      switchRow('自动跑弹幕', s.modules.danmaku, (v) => patchSettings({ modules: { danmaku: v } })),
     );
     g1.appendChild(
       switchRow('自动跑反派行动', s.modules.moves, (v) => patchSettings({ modules: { moves: v } })),

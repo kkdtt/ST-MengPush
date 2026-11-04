@@ -1473,3 +1473,53 @@ button.outline-item:last-child {
   padding: 4px 6px;
   font-size: 11.5px;
 }
+
+/* ---------------- 新人介绍 ---------------- */
+
+.intro-card {
+  padding: 11px 12px;
+  margin-bottom: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: 10px;
+}
+.intro-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.intro-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--accent-2);
+}
+.intro-tag {
+  font-size: 10.5px;
+  padding: 0 6px;
+  line-height: 16px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.intro-line {
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--fg-dim);
+}
+
+.profile-text {
+  margin: 0 0 8px;
+  padding: 10px 11px;
+  max-height: 340px;
+  overflow: auto;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 7px;
+}

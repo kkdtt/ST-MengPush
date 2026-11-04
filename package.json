@@ -1,6 +1,6 @@
 {
   "name": "meng-push-panel",
-  "version": "2.9.4",
+  "version": "2.10.0",
   "private": true,
   "type": "module",
   "description": "造梦师 · 推进台 —— SillyTavern 第三方扩展（无构建，原生 ESM）",

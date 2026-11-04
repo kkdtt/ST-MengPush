@@ -1,5 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.9.4';
-import { VERSION } from './version.js?v=2.9.4';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.10.0';
+import { VERSION } from './version.js?v=2.10.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -30,6 +30,9 @@ export function defaults() {
 
     /** 工具通道：内容走 tool_calls 的 arguments，断流时能按半截 JSON 救回，且触发内容过滤的概率更低 */
     useToolChannel: false,
+
+    /** 角色档案用哪套模板：'1' 详细（约 2000 token）/ '2' 精简（约 1300 token） */
+    profileTemplate: '1',
 
     /** 全局最大回复长度（token）。渠道里留空时用这个 */
     maxReplyTokens: 4000,
