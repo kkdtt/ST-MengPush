@@ -125,6 +125,52 @@ friction: 楼道里有人上下楼
 
 不要写别的字，不要加代码围栏。`;
 
+/* ==================== 剧情大纲 ==================== */
+
+export const DEFAULT_OUTLINE = `根据上面这一场的局面，加上客人的要求，排一份接下来要走的剧情大纲。
+
+客人的要求：{keyword}
+推进幅度：{scale}
+
+排成 {count} 段，每段一个事件，覆盖从此刻到这段剧情结束。
+每段写两样：
+- title：四个字以内的标题
+- 正文：这一段发生什么，谁推动的，落在什么状态
+
+要求：
+- 每段必须是一个具体事件。「关系升温」「感情加深」这种不是事件，是结果。
+- 段与段之间要有因果：后一段由前一段留下的东西触发（一句没说完的话、一件没还的东西、一个被看见的动作）。
+- 起点必须接得上当前正文的落点，不要另起一头。
+- 用当前在场的人。不要凭空造新角色，也不要突然引入外部事故来推进。
+- 不写结果评价，不写「最终两人幸福地生活在一起」，不写「故事还在继续」。
+
+输出格式：一段一个标签，n 是序号，title 是属性：
+<outline n="1" title="拉链">她把拉链卡住，他伸手帮忙，两个人的手第一次叠在一起</outline>
+<outline n="2" title="外套">他把外套搭在她肩上，她嘴上嫌弃但没有脱</outline>
+
+不要写别的字，不要加代码围栏。`;
+
+/* ==================== 分步执行 ==================== */
+
+export const DEFAULT_STEPS = `把上面的大纲拆成 {count} 个可执行的步骤，交给执笔人一步一步写。
+
+每一步是一句直接给执笔人的指令，要写清楚两件事：
+1. 这一轮写什么（具体到场景、动作、谁开口）
+2. 写到哪里停（停在一个具体的动作或半截话上）
+
+要求：
+- 每步对应 1 到 2 轮对话的量。不要一步写完整段大纲，也不要一步只写一个动作。
+- 用陈述句，像「写他在玄关帮她拉上拉链，停在两个人的手都还没收回去的时候」。
+- 不要写「然后」「接着」「最后」这种连接词，每步要能独立执行。
+- 不要写「推进感情」「制造张力」这种空指令。
+- 步骤要覆盖整个大纲，不要漏掉最后一段的收尾。
+
+输出格式：一步一个标签，n 是序号：
+<step n="1">写她背对着门插钥匙，插了两次没进去，他站在她身后半步，没出声</step>
+<step n="2">写他伸手覆上去把钥匙转正，停在门开、她先进去、他手还悬在半空的时候</step>
+
+不要写别的字，不要加代码围栏。`;
+
 /* ==================== 注册表 ==================== */
 
 /** 设置页按这个顺序渲染编辑器。 */
@@ -150,8 +196,20 @@ export const PROMPT_FIELDS = [
   {
     key: 'beats',
     label: '节拍表',
-    hint: '亲密戏的分镜骨架。三段式结构在提示词里写死了，改的时候注意保持 JSON 字段。',
+    hint: '亲密戏的分镜骨架。三段式结构在提示词里写死了，改的时候注意保持 <beat> 标签结构。',
     rows: 10,
+  },
+  {
+    key: 'outline',
+    label: '剧情大纲',
+    hint: '创作页「出大纲」用。{keyword} {scale} {count} 会被替换成输入框里的内容。',
+    rows: 10,
+  },
+  {
+    key: 'steps',
+    label: '分步执行',
+    hint: '把大纲拆成可执行步骤。{count} 是步数。步骤点击后会直接发给主模型。',
+    rows: 9,
   },
 ];
 
@@ -160,6 +218,8 @@ const DEFAULTS = {
   choices: DEFAULT_CHOICES,
   danmaku: DEFAULT_DANMAKU,
   beats: DEFAULT_BEATS,
+  outline: DEFAULT_OUTLINE,
+  steps: DEFAULT_STEPS,
 };
 
 /** 取某个提示词的最终文本：用户改过就用用户的，没改过用默认。 */
@@ -194,6 +254,24 @@ export function buildDanmaku(settings) {
 
 export function buildBeats(settings) {
   return getPrompt('beats', settings);
+}
+
+/** 推进幅度 → 人话。用来填 {scale}。 */
+export const SCALE_TEXT = {
+  light: '轻推：只往前走一小段，把当前这件事写完就停',
+  medium: '中推：走完一个完整的小事件，局面要有明显变化',
+  heavy: '大推：跨过一个阶段，可以换地点、换时间，但不要跳过大事件',
+};
+
+export function buildOutline(settings, { keyword, scale, count }) {
+  return getPrompt('outline', settings)
+    .replace(/\{keyword\}/g, (keyword || '').trim() || '（客人没给具体要求，按当前局面往下排）')
+    .replace(/\{scale\}/g, SCALE_TEXT[scale] || SCALE_TEXT.medium)
+    .replace(/\{count\}/g, String(count ?? 4));
+}
+
+export function buildSteps(settings, { count }) {
+  return getPrompt('steps', settings).replace(/\{count\}/g, String(count ?? 5));
 }
 
 /** 设置页「测试渠道」用不到内核，这里单独给一条极短的。 */

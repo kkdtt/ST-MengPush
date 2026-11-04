@@ -107,6 +107,17 @@ react: 没看他，耳朵还是红的
 friction: 谁都没提刚才那声关门
 </beat>`;
 
+  const FAKE_OUTLINE = `<outline n="1" title="拉链">她背对着门插钥匙，插了两次没进去，他站在她身后半步</outline>
+<outline n="2" title="外套">他把外套搭在她肩上，她嘴上嫌弃但没有脱</outline>
+<outline n="3" title="楼下">两个人站在便利店门口，她说起自己为什么站了四十分钟</outline>
+<outline n="4" title="回去">他送她到楼下，她停在单元门口没进去</outline>`;
+
+  const FAKE_STEPS = `<step n="1">写她背对着门插钥匙，插了两次没进去，他站在她身后半步，没出声</step>
+<step n="2">写他伸手覆上去把钥匙转正，停在门开、她先进去、他手还悬在半空的时候</step>
+<step n="3">写他跟着上楼，在玄关把外套搭在她肩上，她嘴上说不用，手没推开</step>
+<step n="4">写两个人靠在鞋柜边说话，停在她说「你怎么才来」第二遍的时候</step>
+<step n="5">写他问她在楼下站了多久，她低头去拉拉链，停在拉链又卡住的那一下</step>`;
+
   /* ---------------- mock ST 上下文 ---------------- */
 
   const chat = [
@@ -171,7 +182,11 @@ friction: 谁都没提刚才那声关门
       ? FAKE_DANMAKU
       : userMsg.includes('节拍表')
         ? FAKE_BEATS
-        : FAKE_CHOICES;
+        : userMsg.includes('拆成')
+          ? FAKE_STEPS
+          : userMsg.includes('大纲')
+            ? FAKE_OUTLINE
+            : FAKE_CHOICES;
 
     await new Promise((r) => setTimeout(r, 620));
 

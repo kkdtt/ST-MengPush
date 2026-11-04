@@ -189,6 +189,17 @@ eq('<beat> 解析', bs.length, 1);
 eq('beat action 字段', bs[0].action, '她背对着门，钥匙插了两次没进去');
 eq('beat friction 字段', bs[0].friction, '楼道里有人上下楼');
 
+// 创作页的两个解析器
+const ol = engine.parseOutline('<outline n="1" title="拉链">她把拉链卡住，他伸手帮忙</outline>\n<outline n="2" title="外套">他把外套搭在她肩上</outline>');
+eq('<outline> 解析', ol.length, 2);
+eq('outline title 属性', ol[0].title, '拉链');
+eq('outline 正文', ol[0].text, '她把拉链卡住，他伸手帮忙');
+
+const sp = engine.parseSteps('<step n="1">写她插钥匙，插了两次没进去</step>\n<step n="2">写他伸手把钥匙转正</step>');
+eq('<step> 解析', sp.length, 2);
+eq('step 默认未完成', sp[0].done, false);
+eq('step 截断保住前面', engine.parseSteps('<step n="1">一</step>\n<step n="2">二</step>\n<step n="3">三').length, 2);
+
 console.log('\n— 端到端 —');
 let seen = null;
 engine.subscribe((st) => {

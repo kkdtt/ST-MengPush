@@ -12,7 +12,7 @@
 import { completeWithRetry } from './api.js';
 import { readChatMeta, writeChatMeta } from './ctx.js';
 import { buildSnapshot, collectContext, parseJSON } from './parse.js';
-import { buildBeats, buildChoices, buildDanmaku, getKernel } from './prompts.js';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel } from './prompts.js';
 import { channelFor, channelReady, get as getSettings } from './settings.js';
 
 const CACHE_KEY = 'meng_push_cache';
@@ -26,8 +26,9 @@ const state = {
   status: 'idle', // idle | running | error
   stage: '',
   error: '',
-  result: null, // { choices, danmaku, beats, at, messageId }
+  result: null, // { choices, danmaku, beats, notes, at, messageId }
   history: [],
+  story: null, // { keyword, scale, outline, steps, stepCount, busy }
 };
 
 export function subscribe(fn) {
@@ -143,77 +144,98 @@ export async function run(opts = {}) {
   const kernel = getKernel(settings);
 
   try {
-    /* ---- 走向 ---- */
+    // 走向和弹幕并发：谁先回来谁先渲染，不用互相等。
+    // 两个任务通常走同一个渠道，所以不再额外拆渠道并发，避免撞限流。
+    const jobs = [];
+    let choiceError = null;
+
     if (tasks.includes('choices')) {
-      emit({ stage: '出走向' });
-      try {
-        const text = await completeWithRetry(
-          ch,
-          [
-            { role: 'system', content: kernel },
-            { role: 'user', content: base + buildChoices(settings) },
-          ],
-          { signal: abort.signal, retries: settings.retries, stream: false },
-        );
-        result.choices = parseChoices(text, settings.choiceCount);
-        result.notes.choices = result.choices.length ? '' : 'empty';
-      } catch (e) {
-        result.notes.choices = 'error:' + (e?.message || e);
-        throw e;
-      }
-      emit({ result: { ...result }, stage: '' });
+      jobs.push(
+        (async () => {
+          emit({ stage: '生成中' });
+          try {
+            const text = await completeWithRetry(
+              ch,
+              [
+                { role: 'system', content: kernel },
+                { role: 'user', content: base + buildChoices(settings) },
+              ],
+              { signal: abort.signal, retries: settings.retries, stream: false },
+            );
+            result.choices = parseChoices(text, settings.choiceCount);
+            result.notes.choices = result.choices.length ? '' : 'empty';
+          } catch (e) {
+            result.notes.choices = 'error:' + (e?.message || e);
+            choiceError = e;
+          } finally {
+            emit({ result: { ...result }, stage: '' });
+          }
+        })(),
+      );
     }
 
-    /* ---- 弹幕 ---- */
     if (tasks.includes('danmaku') && !abort.signal.aborted) {
       const shouldRun = opts.manual || Math.random() < (settings.danmakuChance ?? 0.4);
       if (shouldRun) {
-        emit({ stage: '看要不要刷弹幕' });
-        try {
-          const dmCh = channelFor('danmaku') || ch;
-          const text = await completeWithRetry(
-            dmCh,
-            [
-              { role: 'system', content: kernel },
-              { role: 'user', content: base + buildDanmaku(settings) },
-            ],
-            { signal: abort.signal, retries: 0, stream: false },
-          );
-          result.danmaku = parseDanmaku(text);
-          result.notes.danmaku = result.danmaku.length ? '' : 'empty';
-        } catch (e) {
-          result.danmaku = [];
-          result.notes.danmaku = 'error:' + (e?.message || e);
-          console.warn('[推进台] 弹幕生成失败', e);
-        }
-        emit({ result: { ...result }, stage: '' });
+        jobs.push(
+          (async () => {
+            emit({ stage: '生成中' });
+            try {
+              const dmCh = channelFor('danmaku') || ch;
+              const text = await completeWithRetry(
+                dmCh,
+                [
+                  { role: 'system', content: kernel },
+                  { role: 'user', content: base + buildDanmaku(settings) },
+                ],
+                { signal: abort.signal, retries: 0, stream: false },
+              );
+              result.danmaku = parseDanmaku(text);
+              result.notes.danmaku = result.danmaku.length ? '' : 'empty';
+            } catch (e) {
+              result.danmaku = [];
+              result.notes.danmaku = 'error:' + (e?.message || e);
+              console.warn('[推进台] 弹幕生成失败', e);
+            } finally {
+              emit({ result: { ...result }, stage: '' });
+            }
+          })(),
+        );
       } else {
         result.notes.danmaku = 'skipped';
-        emit({ result: { ...result }, stage: '' });
       }
     }
 
-    /* ---- 节拍表 ---- */
     if (tasks.includes('beats') && !abort.signal.aborted) {
-      emit({ stage: '排节拍' });
-      try {
-        const btCh = channelFor('beats') || ch;
-        const text = await completeWithRetry(
-          btCh,
-          [
-            { role: 'system', content: kernel },
-            { role: 'user', content: base + buildBeats(settings) },
-          ],
-          { signal: abort.signal, retries: 0, stream: false },
-        );
-        result.beats = parseBeats(text);
-        result.notes.beats = result.beats.length ? '' : 'empty';
-      } catch (e) {
-        result.notes.beats = 'error:' + (e?.message || e);
-        console.warn('[推进台] 节拍表生成失败', e);
-      }
-      emit({ result: { ...result }, stage: '' });
+      jobs.push(
+        (async () => {
+          emit({ stage: '排节拍' });
+          try {
+            const btCh = channelFor('beats') || ch;
+            const text = await completeWithRetry(
+              btCh,
+              [
+                { role: 'system', content: kernel },
+                { role: 'user', content: base + buildBeats(settings) },
+              ],
+              { signal: abort.signal, retries: 0, stream: false },
+            );
+            result.beats = parseBeats(text);
+            result.notes.beats = result.beats.length ? '' : 'empty';
+          } catch (e) {
+            result.notes.beats = 'error:' + (e?.message || e);
+            console.warn('[推进台] 节拍表生成失败', e);
+          } finally {
+            emit({ result: { ...result }, stage: '' });
+          }
+        })(),
+      );
     }
+
+    await Promise.all(jobs);
+
+    // 走向是主菜，它挂了才算这一轮失败；弹幕/节拍挂了只在自己那页显示
+    if (choiceError) throw choiceError;
 
     if (result.messageId >= 0) saveResult(result.messageId, result);
     emit({ status: 'idle', stage: '', result });
@@ -451,4 +473,154 @@ export function onGenerationEnded(messageId) {
 
 export function resetAutoGuard() {
   lastAutoId = -1;
+}
+
+/* ---------------- 剧情创作 ---------------- */
+
+const STORY_KEY = 'meng_push_story';
+
+/** 推进幅度 → 默认段数。 */
+const SCALE_COUNT = { light: 3, medium: 4, heavy: 6 };
+
+export function getStory() {
+  return (
+    readChatMeta(STORY_KEY) || {
+      keyword: '',
+      scale: 'medium',
+      outline: [],
+      steps: [],
+      stepCount: 5,
+      at: 0,
+    }
+  );
+}
+
+export function saveStory(patch) {
+  const next = { ...getStory(), ...patch };
+  writeChatMeta(STORY_KEY, next);
+  emit({ story: next });
+  return next;
+}
+
+export function loadStory() {
+  emit({ story: getStory() });
+  return getStory();
+}
+
+export function clearStory() {
+  writeChatMeta(STORY_KEY, null);
+  emit({ story: null });
+}
+
+export function parseOutline(text) {
+  const out = [];
+  const re = /<outline\b([^>]*)>([\s\S]*?)<\/outline>/gi;
+  let m;
+  while ((m = re.exec(String(text || ''))) !== null) {
+    const attrs = parseAttrs(m[1]);
+    const body = m[2].replace(/\s+/g, ' ').trim();
+    if (!body) continue;
+    out.push({
+      n: Number(attrs.n) || out.length + 1,
+      title: String(attrs.title || '').trim(),
+      text: body,
+    });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+export function parseSteps(text) {
+  const out = [];
+  const re = /<step\b([^>]*)>([\s\S]*?)<\/step>/gi;
+  let m;
+  while ((m = re.exec(String(text || ''))) !== null) {
+    const attrs = parseAttrs(m[1]);
+    const body = m[2].replace(/\s+/g, ' ').trim();
+    if (!body) continue;
+    out.push({ n: Number(attrs.n) || out.length + 1, text: body, done: false });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+/**
+ * 创作页的两个动作。
+ *   runStory('outline', { keyword, scale })  → 出大纲
+ *   runStory('steps', { count })             → 把大纲拆成步骤
+ */
+export async function runStory(action, params = {}) {
+  const settings = getSettings();
+  if (!settings.enabled) {
+    emit({ status: 'error', error: '推进台已关闭' });
+    return;
+  }
+
+  const ch = channelFor('choices');
+  if (!channelReady(ch)) {
+    emit({ status: 'error', error: '先去设置里配一个渠道' });
+    return;
+  }
+
+  currentAbort?.abort();
+  const abort = new AbortController();
+  currentAbort = abort;
+
+  emit({ status: 'running', stage: action === 'outline' ? '排大纲' : '拆步骤', error: '' });
+
+  try {
+    const ctx = collectContext(settings);
+    const base = buildSnapshot(ctx, settings) + '\n\n---\n\n';
+    const kernel = getKernel(settings);
+
+    if (action === 'outline') {
+      const scale = params.scale || 'medium';
+      const count = SCALE_COUNT[scale] || 4;
+      const text = await completeWithRetry(
+        ch,
+        [
+          { role: 'system', content: kernel },
+          { role: 'user', content: base + buildOutline(settings, { keyword: params.keyword, scale, count }) },
+        ],
+        { signal: abort.signal, retries: settings.retries, stream: false },
+      );
+      const outline = parseOutline(text);
+      if (!outline.length) throw new Error('模型没给出可用的大纲');
+      saveStory({ keyword: params.keyword || '', scale, outline, steps: [], at: Date.now() });
+    } else {
+      const story = getStory();
+      if (!story.outline?.length) throw new Error('还没有大纲，先出大纲');
+      const count = Math.min(12, Math.max(2, params.count || 5));
+      const outlineText = story.outline.map((o) => `${o.n}. ${o.title ? o.title + '：' : ''}${o.text}`).join('\n');
+      const text = await completeWithRetry(
+        ch,
+        [
+          { role: 'system', content: kernel },
+          { role: 'user', content: base + '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }) },
+        ],
+        { signal: abort.signal, retries: settings.retries, stream: false },
+      );
+      const steps = parseSteps(text);
+      if (!steps.length) throw new Error('模型没给出可用的步骤');
+      saveStory({ steps, stepCount: count, at: Date.now() });
+    }
+
+    emit({ status: 'idle', stage: '' });
+  } catch (e) {
+    if (abort.signal.aborted) {
+      emit({ status: 'idle', stage: '', error: '已取消' });
+    } else {
+      console.error('[推进台] 创作失败', e);
+      emit({ status: 'error', stage: '', error: e?.message || String(e) });
+    }
+  } finally {
+    if (currentAbort === abort) currentAbort = null;
+  }
+}
+
+/** 把某一步标记为已执行。 */
+export function markStepDone(n) {
+  const story = getStory();
+  const steps = (story.steps || []).map((s) => (s.n === n ? { ...s, done: true } : s));
+  saveStory({ steps });
 }

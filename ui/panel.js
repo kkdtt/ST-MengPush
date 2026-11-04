@@ -9,11 +9,16 @@ import { fillInput } from '../core/ctx.js';
 import {
   cancel,
   clearHistory,
+  clearStory,
   getState,
+  getStory,
   isRunning,
   loadHistory,
+  loadStory,
+  markStepDone,
   run,
   runOne,
+  runStory,
   subscribe,
 } from '../core/engine.js';
 import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js';
@@ -25,6 +30,7 @@ const TABS = [
   { id: 'choices', label: '走向' },
   { id: 'danmaku', label: '场外' },
   { id: 'beats', label: '节拍' },
+  { id: 'story', label: '创作' },
   { id: 'history', label: '往轮' },
 ];
 
@@ -33,6 +39,7 @@ export function createPanel(shadow) {
 
   let activeTab = settings.panel?.tab || 'choices';
   let settingsOpen = false;
+  let settingsTab = 'basic'; // basic | prompts
   let collapsed = false;
 
   /* ---------------- 骨架 ---------------- */
@@ -227,6 +234,14 @@ export function createPanel(shadow) {
   function render(state) {
     if (settingsOpen) return;
     renderTabs(state);
+
+    // 创作页有自己的常驻输入区，不能走「清空重建」那条路，否则一打字就失焦
+    if (activeTab === 'story') {
+      renderStory(state);
+      renderFoot(state);
+      return;
+    }
+
     clear(bodyEl);
 
     if (state.status === 'error' && state.error) {
@@ -376,6 +391,150 @@ export function createPanel(shadow) {
     }
   }
 
+  /* ---------------- 创作页 ---------------- */
+
+  let draftKeyword = '';
+
+  const storyKw = h('textarea', {
+    class: 'story-kw',
+    rows: '2',
+    placeholder: '想写什么？比如：他送她回家，在楼道里被她拦住',
+    oninput: (e) => {
+      draftKeyword = e.target.value;
+    },
+  });
+
+  const storyScale = h('select', { class: 'story-scale' }, [
+    h('option', { value: 'light', text: '轻推 · 一件事' }),
+    h('option', { value: 'medium', text: '中推 · 一个小事件' }),
+    h('option', { value: 'heavy', text: '大推 · 跨一个阶段' }),
+  ]);
+
+  const storyGo = h('button', {
+    class: 'mini-btn primary',
+    text: '出大纲',
+    onclick: () => runStory('outline', { keyword: draftKeyword, scale: storyScale.value }),
+  });
+
+  const storyInput = h('div', { class: 'story-input' }, [
+    storyKw,
+    h('div', { class: 'story-ctrl' }, [storyScale, storyGo]),
+  ]);
+
+  const storyBody = h('div', { class: 'story-body' });
+
+  function renderStory(state) {
+    const story = getStory() || {};
+    const running = state.status === 'running';
+
+    // 输入区常驻：只在它不在 DOM 里时挂回去，避免每次状态变化都把正在打的字冲掉
+    if (!bodyEl.contains(storyInput)) {
+      clear(bodyEl);
+      bodyEl.appendChild(storyInput);
+      bodyEl.appendChild(storyBody);
+      if (!draftKeyword && story.keyword) draftKeyword = story.keyword;
+      storyKw.value = draftKeyword;
+      storyScale.value = story.scale || 'medium';
+    }
+
+    storyGo.disabled = running;
+    storyGo.textContent = running ? '生成中…' : '出大纲';
+
+    clear(storyBody);
+
+    if (state.status === 'error' && state.error) {
+      storyBody.appendChild(h('div', { class: 'error-box', text: state.error }));
+      storyBody.appendChild(h('div', { style: { height: '8px' } }));
+    }
+
+    const outline = story.outline || [];
+    const steps = story.steps || [];
+
+    if (!outline.length) {
+      storyBody.appendChild(
+        h('div', { class: 'empty' }, [
+          '还没有大纲',
+          h('span', { class: 'hint', text: '写一句想往哪走，选个推进幅度，点「出大纲」' }),
+        ]),
+      );
+      return;
+    }
+
+    storyBody.appendChild(h('div', { class: 'section-label', text: '大纲' }));
+    for (const o of outline) {
+      storyBody.appendChild(
+        h('div', { class: 'outline-item' }, [
+          h('span', { class: 'outline-n', text: String(o.n) }),
+          h('div', { class: 'outline-main' }, [
+            o.title ? h('b', { text: o.title }) : null,
+            h('span', { class: 'outline-text', text: o.text }),
+          ]),
+        ]),
+      );
+    }
+
+    const stepCount = h(
+      'select',
+      { class: 'story-scale' },
+      [3, 4, 5, 6, 8].map((n) =>
+        h('option', {
+          value: String(n),
+          text: n + ' 步',
+          selected: (story.stepCount || 5) === n,
+        }),
+      ),
+    );
+
+    storyBody.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        stepCount,
+        h('button', {
+          class: 'mini-btn',
+          text: steps.length ? '重新分步' : '分步执行',
+          disabled: running,
+          onclick: () => runStory('steps', { count: Number(stepCount.value) }),
+        }),
+        h('button', {
+          class: 'mini-btn',
+          text: '清空',
+          onclick: () => {
+            clearStory();
+            draftKeyword = '';
+            storyKw.value = '';
+            render(getState());
+          },
+        }),
+      ]),
+    );
+
+    if (steps.length) {
+      storyBody.appendChild(
+        h('div', { class: 'section-label', text: '步骤 · 点一下填入输入框' }),
+      );
+      for (const st of steps) {
+        storyBody.appendChild(
+          h(
+            'button',
+            {
+              class: 'step' + (st.done ? ' done' : ''),
+              title: '单击填入输入框，Ctrl+单击直接发送',
+              onclick: (e) => {
+                const send = e.ctrlKey || e.metaKey;
+                fillInput(st.text, send);
+                if (!send) markStepDone(st.n);
+                setStatus(send ? '已发送' : '已填入，改完发出去');
+              },
+            },
+            [
+              h('span', { class: 'step-n', text: String(st.n) }),
+              h('span', { class: 'step-text', text: st.text }),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
   function renderHistory(state) {
     const hist = state.history || [];
 
@@ -502,6 +661,43 @@ export function createPanel(shadow) {
     const box = h('div', { class: 'settings' });
     bodyEl.appendChild(box);
 
+    /* --- 分段：基础 / 提示词 --- */
+    box.appendChild(
+      h('div', { class: 'seg' }, [
+        h('button', {
+          class: settingsTab === 'basic' ? 'on' : '',
+          text: '基础',
+          onclick: () => {
+            settingsTab = 'basic';
+            renderSettings();
+          },
+        }),
+        h('button', {
+          class: settingsTab === 'prompts' ? 'on' : '',
+          text: '提示词',
+          onclick: () => {
+            settingsTab = 'prompts';
+            renderSettings();
+          },
+        }),
+      ]),
+    );
+
+    // 提示词页单独一屏，不再塞在设置页最底下
+    if (settingsTab === 'prompts') {
+      const gp = h('div', { class: 'set-group' });
+      for (const field of PROMPT_FIELDS) gp.appendChild(promptEditor(field));
+      box.appendChild(gp);
+      box.appendChild(
+        h('div', {
+          class: 'empty',
+          style: { padding: '2px 0 0', textAlign: 'left', fontSize: '11px', lineHeight: '1.8' },
+          text: '留空 = 用内置默认。改坏了点「恢复默认」即可。',
+        }),
+      );
+      return;
+    }
+
     /* --- 总开关 --- */
     const g1 = h('div', { class: 'set-group' }, [h('h4', { text: '运行' })]);
     g1.appendChild(
@@ -572,13 +768,6 @@ export function createPanel(shadow) {
       switchRow('JSON 模式（渠道不支持就关）', s.jsonMode, (v) => patchSettings({ jsonMode: v })),
     );
     box.appendChild(g4);
-
-    /* --- 提示词 --- */
-    const g5 = h('div', { class: 'set-group' }, [h('h4', { text: '提示词' })]);
-    for (const field of PROMPT_FIELDS) {
-      g5.appendChild(promptEditor(field));
-    }
-    box.appendChild(g5);
 
     /* --- 关于 --- */
     const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '关于' })]);
