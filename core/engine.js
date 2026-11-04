@@ -9,11 +9,11 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=1.2.1';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=1.2.1';
-import { buildSnapshot, collectContext, parseJSON } from './parse.js?v=1.2.1';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel } from './prompts.js?v=1.2.1';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.2.1';
+import { completeWithRetry } from './api.js?v=1.3.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=1.3.0';
+import { buildSnapshot, collectContext, parseJSON } from './parse.js?v=1.3.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel } from './prompts.js?v=1.3.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.3.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -111,7 +111,7 @@ export async function run(opts = {}) {
     return;
   }
 
-  const ctx = collectContext(settings);
+  const ctx = await collectContext(settings);
 
   // 只重刷某一项时，其余项保留上一次的结果，不要清空
   const prev = getCached(ctx.lastBodyId) || {};
@@ -569,7 +569,7 @@ export async function runStory(action, params = {}) {
   emit({ status: 'running', stage: action === 'outline' ? '排大纲' : '拆步骤', error: '' });
 
   try {
-    const ctx = collectContext(settings);
+    const ctx = await collectContext(settings);
     const base = buildSnapshot(ctx, settings) + '\n\n---\n\n';
     const kernel = getKernel(settings);
 

@@ -196,6 +196,63 @@ export function writeChatMeta(key, value) {
   }
 }
 
+/* ---------------- 世界书 ---------------- */
+
+/**
+ * 取当前聊天会激活的世界书条目。
+ *
+ * 用 ST 的 getWorldInfoPrompt(chat, maxContext, isDryRun=true)：
+ * 第三个参数 true 表示只扫描不触发副作用事件，安全。
+ * 返回的是已经拼好的字符串，元信息（哪本条、关键词）会丢，
+ * 但对旁路模型来说，内容比出处重要。
+ *
+ * 不同 ST 版本这个函数可能不存在，取不到就返回空串，不影响主流程。
+ */
+export async function getWorldInfo(maxContext = 4096) {
+  const c = getCtx();
+  if (typeof c?.getWorldInfoPrompt !== 'function') return '';
+
+  try {
+    // chat 参数要「由旧到新」的纯文本数组，扫描最近这些就够
+    const texts = getChat()
+      .slice(-30)
+      .map((m) => String(m?.mes || ''))
+      .filter(Boolean);
+    if (!texts.length) return '';
+
+    const res = await c.getWorldInfoPrompt(texts, maxContext, true);
+    if (!res) return '';
+
+    const parts = [];
+    if (res.worldInfoBefore) parts.push(res.worldInfoBefore);
+    if (res.worldInfoString) parts.push(res.worldInfoString);
+    if (res.worldInfoAfter) parts.push(res.worldInfoAfter);
+
+    // @深度条目单独一块，很多蓝灯条目在这里
+    if (Array.isArray(res.worldInfoDepth)) {
+      for (const d of res.worldInfoDepth) {
+        if (Array.isArray(d?.entries)) parts.push(d.entries.join('\n'));
+      }
+    }
+    if (Array.isArray(res.anBefore)) parts.push(res.anBefore.join('\n'));
+    if (Array.isArray(res.anAfter)) parts.push(res.anAfter.join('\n'));
+
+    return parts.join('\n').trim();
+  } catch (e) {
+    console.warn('[推进台] 读世界书失败', e);
+    return '';
+  }
+}
+
+/** 列出已加载的世界书名，设置页用来显示「当前挂着几本」。 */
+export function getWorldInfoNames() {
+  try {
+    return getCtx()?.getWorldInfoNames?.() || [];
+  } catch {
+    return [];
+  }
+}
+
 /* ---------------- 主题探测 ---------------- */
 
 /**

@@ -9,7 +9,7 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages } from './ctx.js?v=1.2.1';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo } from './ctx.js?v=1.3.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -64,10 +64,17 @@ export function getMode() {
 
 /**
  * 采集上下文。
- * 只取需要的：最近 N 条摘要 + 最新正文尾部 + 角色卡精简 + 用户上一句。
- * 不把整段聊天记录塞进去——flash 的注意力会被稀释，选项会变得很套路。
+ *
+ * 给旁路模型的上下文必须和主模型看到的世界一致，否则选项会跟设定打架。
+ * 四层来源：
+ *   1. 世界书（ST 激活条目，自动扫描）
+ *   2. 角色卡（描述 / 性格 / 场景，全字段）
+ *   3. 过往事件（聊天里的大总结楼层 + 用户手填的背景）
+ *   4. 近况（最近几条摘要 + 最新正文尾部 + 客人上一句）
+ *
+ * 世界书读取是异步的，所以这个函数也是异步的。
  */
-export function collectContext(settings) {
+export async function collectContext(settings) {
   const msgs = getVisibleMessages();
   const summaries = [];
   const depth = Math.max(1, settings?.summaryDepth ?? 3);
@@ -75,6 +82,16 @@ export function collectContext(settings) {
   for (let i = msgs.length - 1; i >= 0 && summaries.length < depth; i--) {
     const s = extractDetails(msgs[i].mes, '摘要');
     if (s) summaries.unshift(s);
+  }
+
+  // 大总结：预设里「大总结」跑完会作为一条楼层留在聊天里
+  let bigSummary = '';
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const s = extractDetails(msgs[i].mes, '大总结');
+    if (s) {
+      bigSummary = s;
+      break;
+    }
   }
 
   let lastBody = '';
@@ -94,21 +111,45 @@ export function collectContext(settings) {
     }
   }
 
+  // 角色卡：描述给足，性格和场景也要带上
   let card = '';
   const ch = getCharInfo();
   if (ch) {
-    const desc = String(ch.description || '').slice(0, settings?.cardChars ?? 600);
-    const pers = String(ch.personality || '').slice(0, 200);
-    card = `【角色】${ch.name || ''}\n${desc}${pers ? '\n' + pers : ''}`.trim();
+    const cardChars = settings?.cardChars ?? 1200;
+    const desc = String(ch.description || '').slice(0, cardChars);
+    const pers = String(ch.personality || '').slice(0, 400);
+    const scen = String(ch.scenario || '').slice(0, 400);
+    const lines = [`【角色】${ch.name || ''}`, desc];
+    if (pers) lines.push('性格：' + pers);
+    if (scen) lines.push('场景：' + scen);
+    card = lines.filter(Boolean).join('\n').trim();
   }
 
-  return { summaries, lastBody, lastBodyId, lastUser, card, mode: getMode(), total: msgs.length };
+  // 世界书：读不到就是空串，不影响流程
+  let worldInfo = '';
+  if (settings?.includeWorldInfo !== false) {
+    worldInfo = await getWorldInfo(settings?.worldInfoBudget ?? 4096);
+  }
+
+  return {
+    summaries,
+    bigSummary,
+    lastBody,
+    lastBodyId,
+    lastUser,
+    card,
+    worldInfo,
+    background: String(settings?.background || '').trim(),
+    mode: getMode(),
+    total: msgs.length,
+  };
 }
 
-/** 把采集到的上下文拼成给 flash 看的快照。 */
+/** 把采集到的上下文拼成给 flash 看的快照。顺序按「由远到近」排。 */
 export function buildSnapshot(ctx, settings) {
   const parts = [];
   const tail = Math.max(300, settings?.tailChars ?? 1400);
+  const wiChars = Math.max(400, settings?.worldInfoChars ?? 2400);
 
   parts.push(
     `【模式】${
@@ -118,7 +159,16 @@ export function buildSnapshot(ctx, settings) {
     }`,
   );
 
+  if (ctx.worldInfo) {
+    const wi = ctx.worldInfo.length > wiChars ? ctx.worldInfo.slice(0, wiChars) + '\n……（世界书余下部分略）' : ctx.worldInfo;
+    parts.push('【世界设定（世界书）】\n' + wi);
+  }
+
   if (ctx.card) parts.push(ctx.card);
+
+  if (ctx.background) parts.push('【背景设定】\n' + ctx.background);
+
+  if (ctx.bigSummary) parts.push('【此前发生的事（大总结）】\n' + ctx.bigSummary);
 
   if (ctx.summaries.length) {
     parts.push('【最近几场摘要】\n' + ctx.summaries.map((s, i) => `(${i + 1}) ${s}`).join('\n'));
@@ -128,9 +178,7 @@ export function buildSnapshot(ctx, settings) {
 
   if (ctx.lastBody) {
     const body = ctx.lastBody;
-    parts.push(
-      '【当前这一场（尾部）】\n' + (body.length > tail ? '……' + body.slice(-tail) : body),
-    );
+    parts.push('【当前这一场（尾部）】\n' + (body.length > tail ? '……' + body.slice(-tail) : body));
   } else {
     parts.push('【注意】正文还没开始，按摘要里的局面给开局选项。');
   }

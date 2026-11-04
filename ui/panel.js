@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput } from '../core/ctx.js?v=1.2.1';
+import { fillInput } from '../core/ctx.js?v=1.3.0';
 import {
   cancel,
   clearHistory,
@@ -20,11 +20,11 @@ import {
   runOne,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.2.1';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.2.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.2.1';
-import { testChannel } from '../core/api.js?v=1.2.1';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.2.1';
+} from '../core/engine.js?v=1.3.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.3.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.3.0';
+import { testChannel } from '../core/api.js?v=1.3.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.3.0';
 
 const TABS = [
   { id: 'choices', label: '走向' },
@@ -765,9 +765,36 @@ export function createPanel(shadow) {
     g4.appendChild(numRow('摘要回溯', s.summaryDepth, 1, 8, 1, (v) => patchSettings({ summaryDepth: v }), '轮'));
     g4.appendChild(numRow('正文尾部', s.tailChars, 400, 4000, 100, (v) => patchSettings({ tailChars: v }), '字'));
     g4.appendChild(
-      switchRow('JSON 模式（渠道不支持就关）', s.jsonMode, (v) => patchSettings({ jsonMode: v })),
+      switchRow('喂世界书给旁路模型', s.includeWorldInfo, (v) => {
+        patchSettings({ includeWorldInfo: v });
+        renderSettings();
+      }),
+    );
+    g4.appendChild(
+      numRow('世界书截断', s.worldInfoChars, 400, 8000, 200, (v) => patchSettings({ worldInfoChars: v }), '字'),
+    );
+    g4.appendChild(
+      numRow('角色卡长度', s.cardChars, 300, 4000, 100, (v) => patchSettings({ cardChars: v }), '字'),
     );
     box.appendChild(g4);
+
+    /* --- 背景设定 --- */
+    const g5 = h('div', { class: 'set-group' }, [h('h4', { text: '背景设定' })]);
+    g5.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        text: '预设里的「存档 / 过往事件」条目插件读不到，把大总结或世界观粘这里，会一起喂给旁路模型。',
+      }),
+    );
+    const bg = h('textarea', {
+      class: 'prompt-input',
+      rows: '6',
+      placeholder: '例：世界观、势力关系、此前发生过的关键事件……',
+      oninput: (e) => patchSettings({ background: e.target.value }),
+    });
+    bg.value = s.background || '';
+    g5.appendChild(bg);
+    box.appendChild(g5);
 
     /* --- 关于 --- */
     const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '关于' })]);

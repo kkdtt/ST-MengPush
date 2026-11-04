@@ -25,6 +25,11 @@ function eq(name, actual, expect) {
 /* ---------------- mock 宿主 ---------------- */
 
 const CHAT = [
+  {
+    name: 'System',
+    is_user: true,
+    mes: '<details><summary>大总结</summary>前三章：她在便利店打工，他每周三来买同一款咖啡，从没说过多余的话。</details>',
+  },
   { name: 'You', is_user: true, mes: '我去便利店买点东西。' },
   {
     name: '林晚',
@@ -78,6 +83,11 @@ const CTX = {
   saveMetadataDebounced: () => {},
   eventSource: { on: () => {}, off: () => {} },
   eventTypes: { GENERATION_ENDED: 'generation_ended' },
+  getWorldInfoPrompt: async () => ({
+    worldInfoBefore: '【世界观】旧城区常年下雨，便利店是唯一 24 小时亮着的地方。',
+    worldInfoAfter: '',
+    worldInfoDepth: [],
+  }),
 };
 
 globalThis.window = {
@@ -115,7 +125,7 @@ const settingsMod = await import('../core/settings.js');
 const engine = await import('../core/engine.js');
 
 console.log('\n— 解析层 —');
-const msg = CHAT[1].mes;
+const msg = CHAT[2].mes;
 
 eq('摘要只取摘要块', extractDetails(msg, '摘要').startsWith('时间：'), true);
 eq('此刻不会串到摘要', extractDetails(msg, '此刻'), '林晚｜大二学生');
@@ -127,7 +137,7 @@ eq('前后废话能抠', parseJSON('结果如下：{"a":1} 完毕'), { a: 1 });
 
 console.log('\n— 上下文采集 —');
 const s = settingsMod.load();
-const ctx = collectContext(s);
+const ctx = await collectContext(s);
 eq('摘要抓到一条', ctx.summaries.length, 1);
 ok('正文取到最后一条 AI 楼', ctx.lastBody.includes('冻的'));
 eq('模式识别为小说', ctx.mode, 'novel');
@@ -138,6 +148,10 @@ const snap = buildSnapshot(ctx, s);
 ok('快照含模式说明', snap.includes('观梦'));
 ok('快照含摘要', snap.includes('21:40'));
 ok('快照不含破甲垫文', !snap.includes('破甲') && !snap.includes('织梦宪章'));
+ok('世界书进了快照', snap.includes('旧城区常年下雨'));
+ok('大总结进了快照', snap.includes('每周三来买同一款咖啡'));
+ok('角色卡带性格字段', snap.includes('性格：'));
+ok('快照按由远到近排序', snap.indexOf('世界设定') < snap.indexOf('最近几场摘要'));
 
 console.log('\n— 请求构造 —');
 eq('裸域名补 /v1', normalizeUrl('https://api.demo.com'), 'https://api.demo.com/v1');
@@ -214,13 +228,13 @@ ok('拿到选项', st.result?.choices?.length >= 2);
 eq('选项数不超过上限', st.result.choices.length <= s.choiceCount + 1, true);
 eq('非法 type 归到顺承', st.result.choices[2]?.type, '顺承');
 eq('风险字段保留', st.result.choices[1]?.risk, '高');
-ok('结果带 messageId', typeof st.result?.messageId === 'number' && st.result.messageId === 1);
+ok('结果带 messageId', typeof st.result?.messageId === 'number' && st.result.messageId === 2);
 ok('请求体确实发出', lastRequestBody?.model === 'gemini-2.5-flash');
 ok('提示词用了内核', String(lastRequestBody?.messages?.[0]?.content).includes('推进台'));
 ok('用户消息含快照', String(lastRequestBody?.messages?.[1]?.content).includes('最近几场摘要'));
 
 console.log('\n— 缓存 —');
-const cached = engine.getCached(1);
+const cached = engine.getCached(2);
 ok('按 messageId 落缓存', !!cached && cached.choices.length === st.result.choices.length);
 ok('历史已记录', engine.loadHistory().length >= 1);
 
