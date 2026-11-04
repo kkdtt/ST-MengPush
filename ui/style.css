@@ -1363,3 +1363,12 @@ textarea {
 .switch.inline input:checked::after {
   transform: translateX(12px);
 }
+
+.rec-tag.toolok {
+  background: rgba(127, 174, 138, 0.18);
+  color: var(--ok);
+}
+.rec-tag.toolno {
+  background: var(--bg-3);
+  color: var(--fg-faint);
+}

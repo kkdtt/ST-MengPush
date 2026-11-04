@@ -43,6 +43,22 @@ export function clearRecords() {
   emit();
 }
 
+/**
+ * 把响应结果附到最近一条记录上。
+ * 光看请求的 tool_choice 只能证明「带了工具」，证明不了「模型真调了」。
+ */
+export function attachResult(info) {
+  const r = records[0];
+  if (!r) return;
+  r.result = {
+    hasTool: !!info?.hasTool,
+    toolName: String(info?.toolName || ''),
+    finishReason: String(info?.finishReason || ''),
+    chars: Number(info?.chars || 0),
+  };
+  emit();
+}
+
 /** 标记「这条请求是推进台自己发的」，用来跟主对话区分。 */
 /**
  * 拿「真正被调用」的那个 fetch 宿主。

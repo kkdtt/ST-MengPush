@@ -9,12 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.5.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.5.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.5.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.5.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.5.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.5.0';
+import { completeWithRetry } from './api.js?v=2.6.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.6.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.6.0';
+import { attachResult } from './inspect.js?v=2.6.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.6.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.6.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.6.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -143,26 +144,38 @@ async function callTask(ch, task, messages, opts, settings) {
   const stream = !!ch.stream;
   const tool = settings.useToolChannel && !stream ? buildTool(task) : null;
 
+  // 渠道自己设了上限就用它的，没设就用全局
+  const replyCap = ch.maxTokens || settings.maxReplyTokens || 4000;
+  const baseOpts = { ...opts, maxTokens: replyCap };
+
   if (!tool) {
-    const res = await completeWithRetry(ch, messages, { ...opts, stream });
+    const res = await completeWithRetry(ch, messages, { ...baseOpts, stream });
+    attachResult({ hasTool: false, finishReason: res.finishReason, chars: res.content?.length });
     return { ...res, args: null };
   }
 
   try {
     const res = await completeWithRetry(ch, messages, {
-      ...opts,
+      ...baseOpts,
       stream,
       tools: [tool],
       toolChoice: 'auto',
     });
     const args = readToolArgs({ tool_calls: res.toolCalls });
+    attachResult({
+      hasTool: !!args,
+      toolName: res.toolCalls?.[0]?.function?.name || '',
+      finishReason: res.finishReason,
+      chars: res.content?.length,
+    });
     if (args) return { ...res, args };
     // 模型没调工具，但给了正文——按文本通道解析
     if (res.content && res.content.trim()) return { ...res, args: null };
     throw new Error('工具通道返回空');
   } catch (e) {
     console.warn('[推进台] 工具通道失败，降级文本', e);
-    const res = await completeWithRetry(ch, messages, { ...opts, stream });
+    const res = await completeWithRetry(ch, messages, { ...baseOpts, stream });
+    attachResult({ hasTool: false, finishReason: 'degraded', chars: res.content?.length });
     return { ...res, args: null, degraded: true };
   }
 }

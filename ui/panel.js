@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.5.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.6.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.5.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.5.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.5.0';
-import { parsePreset } from '../core/import.js?v=2.5.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.5.0';
-import { testChannel } from '../core/api.js?v=2.5.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.5.0';
+} from '../core/engine.js?v=2.6.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.6.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.6.0';
+import { parsePreset } from '../core/import.js?v=2.6.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.6.0';
+import { testChannel } from '../core/api.js?v=2.6.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.6.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -919,6 +919,9 @@ export function createPanel(shadow) {
       numRow('对话层数', s.historyDepth, 0, 50, 1, (v) => patchSettings({ historyDepth: v }), '层'),
     );
     g4.appendChild(
+      numRow('最大回复', s.maxReplyTokens, 500, 64000, 500, (v) => patchSettings({ maxReplyTokens: v }), 'token'),
+    );
+    g4.appendChild(
       numRow('梦中梦上限', s.dreamMaxTokens, 500, 32000, 500, (v) => patchSettings({ dreamMaxTokens: v }), 'token'),
     );
     g4.appendChild(
@@ -1283,6 +1286,12 @@ export function createPanel(shadow) {
       h('summary', { class: 'rec-sum' }, [
         h('span', { class: 'rec-tag ' + (r.self ? 'self' : 'main'), text: r.self ? '推进台' : '主对话' }),
         r.hijacked ? h('span', { class: 'rec-tag hijack', text: '被脚本接管' }) : null,
+        r.result
+          ? h('span', {
+              class: 'rec-tag ' + (r.result.hasTool ? 'toolok' : 'toolno'),
+              text: r.result.hasTool ? `✓ ${r.result.toolName || '工具'}` : '✗ 文本',
+            })
+          : null,
         h('span', { class: 'rec-time', text: time }),
         h('span', {
           class: 'rec-meta',
@@ -1493,12 +1502,13 @@ export function createPanel(shadow) {
     });
     const maxInput = h('input', {
       type: 'number',
-      min: '100',
-      max: '8000',
-      step: '100',
-      value: String(ch.maxTokens ?? 900),
+      min: '0',
+      max: '64000',
+      step: '500',
+      placeholder: '用全局',
+      value: ch.maxTokens ? String(ch.maxTokens) : '',
       onchange: (e) => {
-        ch.maxTokens = Number(e.target.value);
+        ch.maxTokens = Number(e.target.value) || 0;
         const list = getSettings().channels.map((c) => (c.id === ch.id ? ch : c));
         patchSettings({ channels: list });
       },

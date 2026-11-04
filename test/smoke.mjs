@@ -498,5 +498,21 @@ eq('导入后自定义值生效', settingsMod.get().choiceCount, 9);
 ok('导入后默认值补齐', typeof settingsMod.get().dreamMaxTokens === 'number');
 eq('导入非法内容会报错', (() => { try { settingsMod.importConfig('不是json'); return 'no'; } catch { return 'ok'; } })(), 'ok');
 
+// 响应结果记录
+insp.clearRecords();
+await globalThis.fetch('/api/backends/chat-completions/generate', {
+  method: 'POST',
+  body: JSON.stringify({ model: 'x', messages: [] }),
+});
+insp.attachResult({ hasTool: true, toolName: 'submit', finishReason: 'tool_calls', chars: 0 });
+const withResult = insp.getRecords()[0];
+ok('结果被记录', withResult.result?.hasTool === true);
+eq('工具名被记录', withResult.result?.toolName, 'submit');
+eq('finish_reason 被记录', withResult.result?.finishReason, 'tool_calls');
+
+// 全局回复上限
+ok('全局回复上限存在', typeof settingsMod.get().maxReplyTokens === 'number');
+ok('全局上限大于零', settingsMod.get().maxReplyTokens > 0);
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);
