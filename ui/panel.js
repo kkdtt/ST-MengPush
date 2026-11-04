@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.6.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.7.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.6.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.6.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.6.0';
-import { parsePreset } from '../core/import.js?v=2.6.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.6.0';
-import { testChannel } from '../core/api.js?v=2.6.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.6.0';
+} from '../core/engine.js?v=2.7.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.7.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.7.0';
+import { parsePreset } from '../core/import.js?v=2.7.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.7.0';
+import { testChannel } from '../core/api.js?v=2.7.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.7.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -968,18 +968,18 @@ export function createPanel(shadow) {
     );
     box.appendChild(g4);
 
-    /* --- 背景设定 --- */
-    const g5 = h('div', { class: 'set-group' }, [h('h4', { text: '背景设定' })]);
+    /* --- 大总结 --- */
+    const g5 = h('div', { class: 'set-group' }, [h('h4', { text: '大总结' })]);
     g5.appendChild(
       h('div', {
         class: 'prompt-hint',
-        text: '预设里的「存档 / 过往事件」条目插件读不到，把大总结或世界观粘这里，会一起喂给旁路模型。',
+        text: '粘这里的内容会整段放进 <过往事件>，排在摘要前面。通常放预设里的存档条目或阶段性大总结。',
       }),
     );
     const bg = h('textarea', {
       class: 'prompt-input',
       rows: '6',
-      placeholder: '例：世界观、势力关系、此前发生过的关键事件……',
+      placeholder: '把大总结存档粘在这里……',
       oninput: (e) => patchSettings({ background: e.target.value }),
     });
     bg.value = s.background || '';

@@ -103,9 +103,9 @@ globalThis.__dreamCall = 0;
 
 globalThis.fetch = async (url, opt) => {
   lastRequestBody = JSON.parse(opt.body);
-  // 梦中梦的人格提示词里有「铺子」，内核里没有——用这个区分两条链路
+  // 梦中梦的提示词里有「线筐」，内核里没有——用这个区分两条链路
   const allText = (lastRequestBody.messages || []).map((m) => String(m.content || '')).join('\n');
-  if (allText.includes('铺子')) {
+  if (allText.includes('线筐')) {
     globalThis.__dreamCall += 1;
     const first = globalThis.__dreamCall === 1;
     return {
@@ -430,16 +430,17 @@ eq('梦中梦第 1 段是 system 内核', dmMsgs[0]?.role, 'system');
 eq('梦中梦第 2 段是 assistant 认领', dmMsgs[1]?.role, 'assistant');
 eq('梦中梦第 3 段是 system 资料', dmMsgs[2]?.role, 'system');
 
+// 新提示词用了 {{user_last_input}}，不会再追加【客人刚说】，改按人格标记找
 const taskMsg = dmMsgs.find(
-  (m) => m.role === 'system' && String(m.content || '').includes('【客人刚说】'),
+  (m) => m.role === 'system' && String(m.content || '').includes('线筐'),
 );
 ok('任务段存在且是 system', !!taskMsg);
-ok('任务段含弥彦人格', String(taskMsg?.content || '').includes('铺子'));
+ok('任务段含弥彦人格', String(taskMsg?.content || '').includes('线筐'));
 ok('前四段与走向同源（内核+认领+资料）', dmMsgs[0].role === 'system' && dmMsgs[1].role === 'assistant' && dmMsgs[2].role === 'system');
 
 // 占位符：写了就替换到指定位置，不再末尾追加
 const origDream = s.prompts.dream;
-s.prompts.dream = '第五层插槽。你是铺子里的弥彦。客人说：{{user_last_input}}　请据此回答。';
+s.prompts.dream = '第五层插槽。你是造梦师弥彦，线筐在案头。客人说：{{user_last_input}}　请据此回答。';
 globalThis.__dreamCall = 0;
 await engine.runDream('这是测试输入');
 const allDream = (lastRequestBody.messages || []).map((m) => String(m.content || '')).join('\n');

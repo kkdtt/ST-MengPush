@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.6.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.6.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.6.0';
-import { attachResult } from './inspect.js?v=2.6.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.6.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.6.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.6.0';
+import { completeWithRetry } from './api.js?v=2.7.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.7.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.7.0';
+import { attachResult } from './inspect.js?v=2.7.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.7.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.7.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.7.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -144,8 +144,8 @@ async function callTask(ch, task, messages, opts, settings) {
   const stream = !!ch.stream;
   const tool = settings.useToolChannel && !stream ? buildTool(task) : null;
 
-  // 渠道自己设了上限就用它的，没设就用全局
-  const replyCap = ch.maxTokens || settings.maxReplyTokens || 4000;
+  // 优先级：调用方指定（梦中梦）> 渠道设置 > 全局
+  const replyCap = opts.maxTokens || ch.maxTokens || settings.maxReplyTokens || 4000;
   const baseOpts = { ...opts, maxTokens: replyCap };
 
   if (!tool) {
