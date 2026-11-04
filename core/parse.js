@@ -9,7 +9,7 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=1.8.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=1.9.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -176,39 +176,47 @@ export async function collectContext(settings) {
  * 服从度差一大截，破甲效果也跟着掉。
  */
 export function buildSystemContext(ctx, settings) {
-  const parts = [];
   const wiChars = Math.max(400, settings?.worldInfoChars ?? 6000);
+  const wi = ctx.worldInfo || { before: '', after: '' };
 
-  parts.push(
-    `【当前模式】${
-      ctx.mode === 'rp'
-        ? '入梦·RP（客人是局内人，选项写第一人称动作）'
-        : '观梦·小说（客人是场外导演，选项写镜头调度）'
-    }`,
-  );
-
-  // 有外部上下文就整段用它，不再重复拼世界书和角色卡——
-  // 那两份已经在 payload 里了，再拼一遍是双份噪音。
+  // 有外部上下文就整段用它，不再重复拼世界书和角色卡
   if (ctx.external) {
-    parts.push('【主模型本轮收到的完整请求（以此为准，下面的摘要与正文只作补充）】\n' + ctx.external);
-    return parts.join('\n\n');
+    return '【主模型本轮收到的完整请求（以此为准）】\n' + ctx.external;
   }
 
-  if (ctx.worldInfo) {
-    const wi =
-      ctx.worldInfo.length > wiChars
-        ? ctx.worldInfo.slice(0, wiChars) + '\n……（世界书余下部分略）'
-        : ctx.worldInfo;
-    parts.push('【世界设定（世界书）】\n' + wi);
+  const parts = [];
+
+  // 世界书 before 是「世界观与人物」，角色卡也归到这里
+  const charParts = [];
+  if (wi.before) charParts.push(clip(wi.before, wiChars));
+  if (ctx.card) charParts.push(ctx.card);
+  if (charParts.length) {
+    parts.push('<世界观与人物设定>\n' + charParts.join('\n\n') + '\n</世界观与人物设定>');
   }
 
-  if (ctx.card) parts.push(ctx.card);
-
-  if (ctx.background) parts.push('【背景设定】\n' + ctx.background);
-
-  if (ctx.bigSummary) parts.push('【此前发生的事（大总结）】\n' + ctx.bigSummary);
+  // 世界书 after 是「规则与补充」，手填的背景设定也归这里
+  const ruleParts = [];
+  if (wi.after) ruleParts.push(clip(wi.after, wiChars));
+  if (ctx.background) ruleParts.push(ctx.background);
+  if (ruleParts.length) {
+    parts.push('<世界规则与其他补充材料>\n' + ruleParts.join('\n\n') + '\n</世界规则与其他补充材料>');
+  }
 
   return parts.join('\n\n');
+}
+
+/** 超长截断，带上提示，免得模型以为资料就这么多。 */
+function clip(text, max) {
+  const str = String(text || '');
+  return str.length > max ? str.slice(0, max) + '\n……（余下部分略）' : str;
+}
+
+/** 去掉 <user> 这类宏标记，换成预设里的称呼「主控」。 */
+function cleanUserMarks(text) {
+  return String(text || '')
+    .replace(/\{\{\s*user\s*\}\}/gi, '主控')
+    .replace(/<\/?user>/gi, '')
+    .trim();
 }
 
 /**
@@ -252,11 +260,15 @@ export function buildMaterialContext(ctx, settings) {
   const base = buildSystemContext(ctx, settings);
   const parts = base ? [base] : [];
 
+  // 过往事件：大总结在前，更早的摘要按时间顺序跟在后面
+  const hist = [];
+  if (ctx.bigSummary) hist.push(ctx.bigSummary);
   if (ctx.summaries.length) {
-    parts.push(
-      '【更早的剧情摘要（最近几层的正文见下面对话）】\n' +
-        ctx.summaries.map((s, i) => `(${i + 1}) ${s}`).join('\n'),
-    );
+    hist.push(ctx.summaries.map((s, i) => `(${i + 1}) ${s}`).join('\n'));
+  }
+
+  if (hist.length) {
+    parts.push('<过往事件>\n' + cleanUserMarks(hist.join('\n\n')) + '\n</过往事件>');
   }
 
   return parts.join('\n\n');

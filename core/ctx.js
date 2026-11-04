@@ -209,8 +209,9 @@ export function writeChatMeta(key, value) {
  * 不同 ST 版本这个函数可能不存在，取不到就返回空串，不影响主流程。
  */
 export async function getWorldInfo(maxContext = 4096) {
+  const empty = { before: '', after: '' };
   const c = getCtx();
-  if (typeof c?.getWorldInfoPrompt !== 'function') return '';
+  if (typeof c?.getWorldInfoPrompt !== 'function') return empty;
 
   try {
     // chat 参数要「由旧到新」的纯文本数组，扫描最近这些就够
@@ -218,29 +219,43 @@ export async function getWorldInfo(maxContext = 4096) {
       .slice(-30)
       .map((m) => String(m?.mes || ''))
       .filter(Boolean);
-    if (!texts.length) return '';
+    if (!texts.length) return empty;
 
     const res = await c.getWorldInfoPrompt(texts, maxContext, true);
-    if (!res) return '';
+    if (!res) return empty;
 
-    const parts = [];
-    if (res.worldInfoBefore) parts.push(res.worldInfoBefore);
-    if (res.worldInfoString) parts.push(res.worldInfoString);
-    if (res.worldInfoAfter) parts.push(res.worldInfoAfter);
+    // 保留 ST 的位置信息：before 插在角色卡之前，after 插在之后。
+    // 这两块语义不同——前者是世界观和人物，后者是规则与补充材料，
+    // 拼成一段就分不出来了。
+    const before = [res.worldInfoBefore, ...(Array.isArray(res.anBefore) ? res.anBefore : [])]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
 
-    // @深度条目单独一块，很多蓝灯条目在这里
+    let after = [res.worldInfoAfter, ...(Array.isArray(res.anAfter) ? res.anAfter : [])]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+
+    // @深度条目归到 after
     if (Array.isArray(res.worldInfoDepth)) {
-      for (const d of res.worldInfoDepth) {
-        if (Array.isArray(d?.entries)) parts.push(d.entries.join('\n'));
-      }
+      const depth = res.worldInfoDepth
+        .flatMap((d) => (Array.isArray(d?.entries) ? d.entries : []))
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (depth) after = after ? after + '\n' + depth : depth;
     }
-    if (Array.isArray(res.anBefore)) parts.push(res.anBefore.join('\n'));
-    if (Array.isArray(res.anAfter)) parts.push(res.anAfter.join('\n'));
 
-    return parts.join('\n').trim();
+    // 有些版本只给合并后的 worldInfoString，那就整段放到 after
+    if (!before && !after && res.worldInfoString) {
+      after = String(res.worldInfoString).trim();
+    }
+
+    return { before, after };
   } catch (e) {
     console.warn('[推进台] 读世界书失败', e);
-    return '';
+    return empty;
   }
 }
 

@@ -86,7 +86,7 @@ const CTX = {
   eventTypes: { GENERATION_ENDED: 'generation_ended' },
   getWorldInfoPrompt: async () => ({
     worldInfoBefore: '【世界观】旧城区常年下雨，便利店是唯一 24 小时亮着的地方。',
-    worldInfoAfter: '',
+    worldInfoAfter: '【规则】门禁十一点，走廊不许喧哗。',
     worldInfoDepth: [],
   }),
 };
@@ -154,13 +154,17 @@ ok('角色卡被精简带入', ctx.card.includes('林晚'));
 ok('上一句用户输入', ctx.lastUser === '我去便利店买点东西。');
 
 const mat = buildMaterialContext(ctx, s);
-ok('资料段含模式说明', mat.includes('观梦'));
-ok('资料段含摘要', mat.includes('21:40'));
+ok('不再输出【当前模式】', !mat.includes('当前模式'));
+ok('有世界观与人物设定块', mat.includes('<世界观与人物设定>'));
+ok('有世界规则与其他补充材料块', mat.includes('<世界规则与其他补充材料>'));
+ok('有过往事件块', mat.includes('<过往事件>'));
+ok('世界书 before 落在世界观块', mat.indexOf('旧城区常年下雨') < mat.indexOf('</世界观与人物设定>'));
+ok('世界书 after 落在规则块', mat.indexOf('门禁十一点') > mat.indexOf('<世界规则与其他补充材料>'));
+ok('角色卡落在世界观块', mat.indexOf('性格：') < mat.indexOf('</世界观与人物设定>'));
+ok('大总结落在过往事件块', mat.indexOf('每周三来买同一款咖啡') > mat.indexOf('<过往事件>'));
+ok('摘要在过往事件块里', mat.indexOf('21:40') > mat.indexOf('<过往事件>'));
+ok('过往事件不带 user 标记', !/<\/?user>/.test(mat));
 ok('资料段不含破甲垫文', !mat.includes('破甲') && !mat.includes('织梦宪章'));
-ok('世界书进了资料段', mat.includes('旧城区常年下雨'));
-ok('大总结进了资料段', mat.includes('每周三来买同一款咖啡'));
-ok('角色卡带性格字段', mat.includes('性格：'));
-ok('资料段按由远到近排序', mat.indexOf('世界设定') < mat.indexOf('更早的剧情摘要'));
 
 // 外部导入的完整上下文
 CTX.chatMetadata['meng_push_external_context'] = '[system]\n完整预设\n\n[user]\n这是主模型的 payload';
@@ -284,7 +288,7 @@ ok('第 2 段是 assistant 认领', M[1]?.role === 'assistant' && M[1].content.l
 ok('第 3 段是 system 资料', M[2]?.role === 'system' && M[2].content.includes('旧城区常年下雨'));
 ok('资料段含角色卡', M[2].content.includes('林晚'));
 ok('资料段含大总结', M[2].content.includes('每周三来买同一款咖啡'));
-ok('资料段含摘要', M[2].content.includes('更早的剧情摘要'));
+ok('资料段含过往事件块', M[2].content.includes('<过往事件>'));
 ok('最后一段是任务', M[M.length - 1].role === 'system' && M[M.length - 1].content.includes('下一步'));
 ok('资料段不混正文', !M[2].content.includes('冻的'));
 
