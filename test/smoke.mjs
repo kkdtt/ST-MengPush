@@ -103,10 +103,9 @@ globalThis.__dreamCall = 0;
 
 globalThis.fetch = async (url, opt) => {
   lastRequestBody = JSON.parse(opt.body);
-  const sysMsg = String(lastRequestBody.messages?.[0]?.content || '');
-
   // 梦中梦的人格提示词里有「铺子」，内核里没有——用这个区分两条链路
-  if (sysMsg.includes('铺子')) {
+  const allText = (lastRequestBody.messages || []).map((m) => String(m.content || '')).join('\n');
+  if (allText.includes('铺子')) {
     globalThis.__dreamCall += 1;
     const first = globalThis.__dreamCall === 1;
     return {

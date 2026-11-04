@@ -9,12 +9,12 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.3.2';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.3.2';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.3.2';
-import { buildTool, readToolArgs } from './tools.js?v=2.3.2';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.3.2';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.3.2';
+import { completeWithRetry } from './api.js?v=2.4.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.4.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.4.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.4.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.4.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.4.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -120,8 +120,14 @@ function assembleMessages(settings, material, task) {
 
   msgs.push(...buildChatHistory(settings));
 
-  // 最后一条永远是任务。前面没有对话时，它就是唯一一条 user/system 指令
-  msgs.push({ role: 'system', content: task });
+  // 最后一条永远是任务。末尾这句话有两个作用：
+  //   1. 对模型：明确「按格式交结果」，别顺着对话往下写
+  //   2. 对预设的「结构化传输」脚本：它见到「接着上一句往下写」会按「扮演续写」放行，
+  //      不再接管我们的请求。否则上下文会被它挪进 tools，检视页只剩几条流水线外壳。
+  msgs.push({
+    role: 'system',
+    content: task + '\n\n（这是内部任务：不要接着上一句往下写，直接按上面的格式交出结果。）',
+  });
   return msgs;
 }
 
@@ -881,26 +887,25 @@ export async function runDream(input) {
   try {
     const ctx = await collectContext(settings);
 
-    const historyText = history
-      .map((m) => (m.role === 'user' ? '客人：' : '弥彦：') + m.text)
-      .join('\n');
+    // 跟其它任务用同一套五段式：
+    //   1 system 内核  2 assistant 认领  3 system 资料
+    //   4 铺子里的对话（真实 user/assistant）  5 system 本轮任务
+    let material = buildMaterialContext(ctx, settings);
+    if (ctx.lastBody) {
+      const tail = Math.max(300, settings?.tailChars ?? 3000);
+      const body = ctx.lastBody;
+      material +=
+        '\n\n【梦里此刻（正文尾部）】\n' + (body.length > tail ? '……' + body.slice(-tail) : body);
+    }
 
-    // 弥彦人格 + 世界规则 + 世界设定都进 system，铺子里的对话和当前局面进 user
-    const sys =
-      getPrompt('dream', settings) +
-      '\n\n---\n\n' +
-      getKernel(settings) +
-      '\n\n---\n\n' +
-      buildSystemContext(ctx, settings);
-
-    const userMsg =
-      buildUserContext(ctx, settings) +
-      (historyText ? '\n\n【铺子里的对话】\n' + historyText : '') +
-      '\n\n【客人刚说】\n' + text;
+    const taskText = getPrompt('dream', settings) + '\n\n【客人刚说】\n' + text;
 
     const baseMessages = [
-      { role: 'system', content: sys },
-      { role: 'user', content: userMsg },
+      { role: 'system', content: getKernel(settings) },
+      { role: 'assistant', content: getPrompt('ack', settings) },
+      { role: 'system', content: material },
+      ...history.map((m) => ({ role: m.role, content: m.text })),
+      { role: 'system', content: taskText },
     ];
     const reqOpts = {
       signal: abort.signal,
