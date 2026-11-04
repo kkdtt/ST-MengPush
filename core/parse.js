@@ -9,7 +9,7 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=1.7.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=1.8.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -83,10 +83,13 @@ export async function collectContext(settings) {
   // 旧楼层被 /hide 之后不影响这里——hide 只是不显示，数据还在 chat 数组里，
   // 所以可以放心往回翻，翻到字数上限为止。
   const maxChars = Math.max(400, settings?.summaryChars ?? 3200);
-  const maxCount = Math.max(1, settings?.summaryDepth ?? 20);
+  const maxCount = Math.max(1, settings?.summaryDepth ?? 200);
+  // 最近 N 层会以「真实对话」的形式进 messages，它们的摘要就不必重复取了
+  const recentN = Math.max(0, settings?.historyDepth ?? 6);
+  const cutoff = msgs.length - recentN;
   let used = 0;
 
-  for (let i = msgs.length - 1; i >= 0; i--) {
+  for (let i = cutoff - 1; i >= 0; i--) {
     const s = extractDetails(msgs[i].mes, '摘要');
     if (!s) continue;
     if (summaries.length >= maxCount) break;
@@ -237,4 +240,43 @@ export function buildUserContext(ctx, settings) {
 /** 兼容旧调用：两段拼在一起。engine 已经分开用了，这里留给测试和外部引用。 */
 export function buildSnapshot(ctx, settings) {
   return buildSystemContext(ctx, settings) + '\n\n---\n\n' + buildUserContext(ctx, settings);
+}
+
+/**
+ * 资料段（第 3 条 system）：世界书 + 角色卡 + 背景 + 大总结 + 更早的摘要。
+ *
+ * 用户方案里这一条单独成 system，夹在「认领身份」和「真实对话」之间，
+ * 读起来像「设定补充」，而不是「用户提供的材料」。
+ */
+export function buildMaterialContext(ctx, settings) {
+  const base = buildSystemContext(ctx, settings);
+  const parts = base ? [base] : [];
+
+  if (ctx.summaries.length) {
+    parts.push(
+      '【更早的剧情摘要（最近几层的正文见下面对话）】\n' +
+        ctx.summaries.map((s, i) => `(${i + 1}) ${s}`).join('\n'),
+    );
+  }
+
+  return parts.join('\n\n');
+}
+
+/**
+ * 真实对话段（第 4 条起）：最近 N 层，用户与助手交替。
+ *
+ * 用真实 role 而不是把正文塞进 user 的文本里——模型看到的是「我以前编的梦」，
+ * 而不是「用户给我的一段材料」。这是降低戒心的关键。
+ */
+export function buildChatHistory(settings) {
+  const n = Math.max(0, settings?.historyDepth ?? 6);
+  if (!n) return [];
+
+  return getVisibleMessages()
+    .slice(-n)
+    .map((m) => ({
+      role: m.is_user ? 'user' : 'assistant',
+      content: m.is_user ? String(m.mes || '').trim() : getBody(m.mes),
+    }))
+    .filter((m) => m.content);
 }

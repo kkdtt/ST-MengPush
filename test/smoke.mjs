@@ -66,6 +66,7 @@ const extSettings = {
     modules: { choices: true, danmaku: false, beats: false },
     choiceCount: 5,
     jsonMode: true,
+    historyDepth: 0,
   },
 };
 
@@ -117,9 +118,16 @@ globalThis.fetch = async (url, opt) => {
 
 /* ---------------- 跑 ---------------- */
 
-const { extractDetails, stripModules, getBody, parseJSON, collectContext, buildSnapshot } = await import(
-  '../core/parse.js'
-);
+const {
+  extractDetails,
+  stripModules,
+  getBody,
+  parseJSON,
+  collectContext,
+  buildSnapshot,
+  buildMaterialContext,
+  buildChatHistory,
+} = await import('../core/parse.js');
 const { normalizeUrl, buildRequestBody } = await import('../core/api.js');
 const settingsMod = await import('../core/settings.js');
 const engine = await import('../core/engine.js');
@@ -145,14 +153,14 @@ eq('模式识别为小说', ctx.mode, 'novel');
 ok('角色卡被精简带入', ctx.card.includes('林晚'));
 ok('上一句用户输入', ctx.lastUser === '我去便利店买点东西。');
 
-const snap = buildSnapshot(ctx, s);
-ok('快照含模式说明', snap.includes('观梦'));
-ok('快照含摘要', snap.includes('21:40'));
-ok('快照不含破甲垫文', !snap.includes('破甲') && !snap.includes('织梦宪章'));
-ok('世界书进了快照', snap.includes('旧城区常年下雨'));
-ok('大总结进了快照', snap.includes('每周三来买同一款咖啡'));
-ok('角色卡带性格字段', snap.includes('性格：'));
-ok('快照按由远到近排序', snap.indexOf('世界设定') < snap.indexOf('最近几场摘要'));
+const mat = buildMaterialContext(ctx, s);
+ok('资料段含模式说明', mat.includes('观梦'));
+ok('资料段含摘要', mat.includes('21:40'));
+ok('资料段不含破甲垫文', !mat.includes('破甲') && !mat.includes('织梦宪章'));
+ok('世界书进了资料段', mat.includes('旧城区常年下雨'));
+ok('大总结进了资料段', mat.includes('每周三来买同一款咖啡'));
+ok('角色卡带性格字段', mat.includes('性格：'));
+ok('资料段按由远到近排序', mat.indexOf('世界设定') < mat.indexOf('更早的剧情摘要'));
 
 // 外部导入的完整上下文
 CTX.chatMetadata['meng_push_external_context'] = '[system]\n完整预设\n\n[user]\n这是主模型的 payload';
@@ -269,18 +277,24 @@ eq('风险字段保留', st.result.choices[1]?.risk, '高');
 ok('结果带 messageId', typeof st.result?.messageId === 'number' && st.result.messageId === 2);
 ok('请求体确实发出', lastRequestBody?.model === 'gemini-2.5-flash');
 ok('提示词用了内核', String(lastRequestBody?.messages?.[0]?.content).includes('推进台'));
-ok('用户消息含快照', String(lastRequestBody?.messages?.[1]?.content).includes('最近几场摘要'));
+// 五段式结构
+const M = lastRequestBody?.messages || [];
+ok('第 1 段是 system 内核', M[0]?.role === 'system' && M[0].content.includes('推进台'));
+ok('第 2 段是 assistant 认领', M[1]?.role === 'assistant' && M[1].content.length > 20);
+ok('第 3 段是 system 资料', M[2]?.role === 'system' && M[2].content.includes('旧城区常年下雨'));
+ok('资料段含角色卡', M[2].content.includes('林晚'));
+ok('资料段含大总结', M[2].content.includes('每周三来买同一款咖啡'));
+ok('资料段含摘要', M[2].content.includes('更早的剧情摘要'));
+ok('最后一段是任务', M[M.length - 1].role === 'system' && M[M.length - 1].content.includes('下一步'));
+ok('资料段不混正文', !M[2].content.includes('冻的'));
 
-// system / user 的分工：设定进 system，事实进 user
-const sysMsg = String(lastRequestBody?.messages?.[0]?.content || '');
-const usrMsg = String(lastRequestBody?.messages?.[1]?.content || '');
-ok('世界书进 system', sysMsg.includes('旧城区常年下雨'));
-ok('角色卡进 system', sysMsg.includes('林晚'));
-ok('大总结进 system', sysMsg.includes('每周三来买同一款咖啡'));
-ok('世界书不在 user 重复', !usrMsg.includes('旧城区常年下雨'));
-ok('摘要留在 user', usrMsg.includes('最近几场摘要'));
-ok('正文留在 user', usrMsg.includes('冻的'));
-ok('system 只留设定不留正文', !sysMsg.includes('你怎么才来'));
+// 真实对话段：最近 N 层以 user/assistant 交替出现
+s.historyDepth = 6;
+const hist = buildChatHistory(s);
+ok('对话段有内容', hist.length > 0);
+ok('对话段角色合法', hist.every((m) => m.role === 'user' || m.role === 'assistant'));
+ok('对话段含正文', hist.some((m) => m.content.includes('冻的')));
+s.historyDepth = 0;
 
 console.log('\n— 缓存 —');
 const cached = engine.getCached(2);

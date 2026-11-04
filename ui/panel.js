@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=1.7.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=1.8.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.7.0';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.7.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.7.0';
-import { parsePreset } from '../core/import.js?v=1.7.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=1.7.0';
-import { testChannel } from '../core/api.js?v=1.7.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.7.0';
+} from '../core/engine.js?v=1.8.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.8.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.8.0';
+import { parsePreset } from '../core/import.js?v=1.8.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=1.8.0';
+import { testChannel } from '../core/api.js?v=1.8.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.8.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -902,6 +902,9 @@ export function createPanel(shadow) {
       numRow('弹幕概率', s.danmakuChance, 0, 1, 0.05, (v) => patchSettings({ danmakuChance: v })),
     );
     g4.appendChild(
+      numRow('对话层数', s.historyDepth, 0, 50, 1, (v) => patchSettings({ historyDepth: v }), '层'),
+    );
+    g4.appendChild(
       numRow('摘要条数', s.summaryDepth, 1, 200, 1, (v) => patchSettings({ summaryDepth: v }), '条'),
     );
     g4.appendChild(
@@ -926,7 +929,7 @@ export function createPanel(shadow) {
       h('div', {
         class: 'prompt-hint',
         style: { marginTop: '2px' },
-        text: '单位是字。中文大约 1 字 ≈ 0.7 token，100k token 对应 14 万字左右。数字改完立刻存，失焦时会把超出范围的值修正并回显。',
+        text: '「对话层数」指最近几层以真实对话发给旁路，更早的走摘要。单位是字，中文约 1 字 ≈ 0.7 token，100k token 对应 14 万字。数字改完立刻存，失焦时会修正超出范围的值。',
       }),
     );
     box.appendChild(g4);

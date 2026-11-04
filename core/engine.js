@@ -9,11 +9,11 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=1.7.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=1.7.0';
-import { buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=1.7.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=1.7.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.7.0';
+import { completeWithRetry } from './api.js?v=1.8.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=1.8.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=1.8.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=1.8.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.8.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -95,6 +95,35 @@ export function clearHistory() {
   emit({ history: [], result: null });
 }
 
+/* ---------------- 消息组装 ---------------- */
+
+/**
+ * 按「模仿 ST 原生对话」的形态拼 messages：
+ *
+ *   1. system    内核（身份与准则）
+ *   2. assistant 认领身份（先认账，后面的要求就成了「刚答应过的事」）
+ *   3. system    资料（世界书 / 角色卡 / 大总结 / 更早的摘要）
+ *   4. user↔assistant  最近几层的真实对话
+ *   5. system    这一轮的任务与输出格式
+ *
+ * 为什么不把资料全塞 user：模型会把 system 当规则、把 user 当请求。
+ * 中间插一条 assistant 认账，是为了让它进入「我在干活」的状态，
+ * 而不是「有人在给我派活」——戒心低一档，效果差不少。
+ */
+function assembleMessages(settings, material, task) {
+  const msgs = [
+    { role: 'system', content: getKernel(settings) },
+    { role: 'assistant', content: getPrompt('ack', settings) },
+    { role: 'system', content: material },
+  ];
+
+  msgs.push(...buildChatHistory(settings));
+
+  // 最后一条永远是任务。前面没有对话时，它就是唯一一条 user/system 指令
+  msgs.push({ role: 'system', content: task });
+  return msgs;
+}
+
 /* ---------------- 主流程 ---------------- */
 
 let currentAbort = null;
@@ -140,11 +169,8 @@ export async function run(opts = {}) {
 
   emit({ status: 'running', stage: '整理上下文', error: '', result: { ...result } });
 
-  // system 装「世界法则」（内核 + 世界书 + 角色卡 + 背景 + 大总结），
-  // user 装「此刻的事实」（摘要 + 上一句 + 正文尾部）。
-  // 混在一起会让模型把设定当成用户提供的材料，服从度掉一截。
-  const sys = getKernel(settings) + '\n\n---\n\n' + buildSystemContext(ctx, settings);
-  const base = buildUserContext(ctx, settings) + '\n\n---\n\n';
+  // 资料段：世界书 + 角色卡 + 背景 + 大总结 + 更早的摘要
+  const material = buildMaterialContext(ctx, settings);
 
   try {
     // 走向和弹幕并发：谁先回来谁先渲染，不用互相等。
@@ -159,10 +185,7 @@ export async function run(opts = {}) {
           try {
             const text = await completeWithRetry(
               ch,
-              [
-                { role: 'system', content: sys },
-                { role: 'user', content: base + buildChoices(settings) },
-              ],
+              assembleMessages(settings, material, buildChoices(settings)),
               { signal: abort.signal, retries: settings.retries, stream: false },
             );
             result.choices = parseChoices(text, settings.choiceCount);
@@ -187,10 +210,7 @@ export async function run(opts = {}) {
               const dmCh = channelFor('danmaku') || ch;
               const text = await completeWithRetry(
                 dmCh,
-                [
-                  { role: 'system', content: sys },
-                  { role: 'user', content: base + buildDanmaku(settings) },
-                ],
+                assembleMessages(settings, material, buildDanmaku(settings)),
                 { signal: abort.signal, retries: 0, stream: false },
               );
               result.danmaku = parseDanmaku(text);
@@ -217,10 +237,7 @@ export async function run(opts = {}) {
             const btCh = channelFor('beats') || ch;
             const text = await completeWithRetry(
               btCh,
-              [
-                { role: 'system', content: sys },
-                { role: 'user', content: base + buildBeats(settings) },
-              ],
+              assembleMessages(settings, material, buildBeats(settings)),
               { signal: abort.signal, retries: 0, stream: false },
             );
             result.beats = parseBeats(text);
@@ -573,8 +590,7 @@ export async function runStory(action, params = {}) {
 
   try {
     const ctx = await collectContext(settings);
-    const sys = getKernel(settings) + '\n\n---\n\n' + buildSystemContext(ctx, settings);
-    const base = buildUserContext(ctx, settings) + '\n\n---\n\n';
+    const material = buildMaterialContext(ctx, settings);
 
     if (action === 'outline') {
       const scale = params.scale || 'medium';
@@ -582,8 +598,11 @@ export async function runStory(action, params = {}) {
       const text = await completeWithRetry(
         ch,
         [
-          { role: 'system', content: sys },
-          { role: 'user', content: base + buildOutline(settings, { keyword: params.keyword, scale, count }) },
+          assembleMessages(
+            settings,
+            material,
+            buildOutline(settings, { keyword: params.keyword, scale, count }),
+          ),
         ],
         { signal: abort.signal, retries: settings.retries, stream: false },
       );
@@ -598,8 +617,11 @@ export async function runStory(action, params = {}) {
       const text = await completeWithRetry(
         ch,
         [
-          { role: 'system', content: sys },
-          { role: 'user', content: base + '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }) },
+          assembleMessages(
+            settings,
+            material,
+            '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }),
+          ),
         ],
         { signal: abort.signal, retries: settings.retries, stream: false },
       );
