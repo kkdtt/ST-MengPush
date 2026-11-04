@@ -421,6 +421,18 @@ globalThis.__dreamCall = 0;
 await engine.runDream('林晚现在在想什么');
 eq('梦中梦上限覆盖渠道默认', lastRequestBody.max_tokens, s.dreamMaxTokens || 12000);
 eq('触发了一次续写（共两次请求）', globalThis.__dreamCall, 2);
+// 注意：这里拿到的是「续写请求」，最后一条是续写指令，不是任务段
+const dmMsgs = lastRequestBody.messages || [];
+eq('梦中梦第 1 段是 system 内核', dmMsgs[0]?.role, 'system');
+eq('梦中梦第 2 段是 assistant 认领', dmMsgs[1]?.role, 'assistant');
+eq('梦中梦第 3 段是 system 资料', dmMsgs[2]?.role, 'system');
+
+const taskMsg = dmMsgs.find(
+  (m) => m.role === 'system' && String(m.content || '').includes('【客人刚说】'),
+);
+ok('任务段存在且是 system', !!taskMsg);
+ok('任务段含弥彦人格', String(taskMsg?.content || '').includes('铺子'));
+ok('前四段与走向同源（内核+认领+资料）', dmMsgs[0].role === 'system' && dmMsgs[1].role === 'assistant' && dmMsgs[2].role === 'system');
 
 const dreamMsgs = engine.getDream().messages;
 const lastSay = dreamMsgs[dreamMsgs.length - 1]?.text || '';

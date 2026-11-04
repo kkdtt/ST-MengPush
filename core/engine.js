@@ -9,12 +9,12 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.4.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.4.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.4.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.4.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.4.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.4.0';
+import { completeWithRetry } from './api.js?v=2.4.1';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.4.1';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.4.1';
+import { buildTool, readToolArgs } from './tools.js?v=2.4.1';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.4.1';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.4.1';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -887,9 +887,9 @@ export async function runDream(input) {
   try {
     const ctx = await collectContext(settings);
 
-    // 跟其它任务用同一套五段式：
-    //   1 system 内核  2 assistant 认领  3 system 资料
-    //   4 铺子里的对话（真实 user/assistant）  5 system 本轮任务
+    // 前四段跟其它任务完全一致（内核 / 认领 / 资料 / 梦境对话），
+    // 梦中梦特有的东西全部塞进第五段插槽：人格 + 铺子里的对话 + 客人刚说。
+    // 这样框架是死的，只有插槽在变，加新功能只要写插槽就行。
     let material = buildMaterialContext(ctx, settings);
     if (ctx.lastBody) {
       const tail = Math.max(300, settings?.tailChars ?? 3000);
@@ -898,15 +898,17 @@ export async function runDream(input) {
         '\n\n【梦里此刻（正文尾部）】\n' + (body.length > tail ? '……' + body.slice(-tail) : body);
     }
 
-    const taskText = getPrompt('dream', settings) + '\n\n【客人刚说】\n' + text;
+    const historyText = history
+      .map((m) => (m.role === 'user' ? '客人：' : '弥彦：') + m.text)
+      .join('\n');
 
-    const baseMessages = [
-      { role: 'system', content: getKernel(settings) },
-      { role: 'assistant', content: getPrompt('ack', settings) },
-      { role: 'system', content: material },
-      ...history.map((m) => ({ role: m.role, content: m.text })),
-      { role: 'system', content: taskText },
-    ];
+    const taskText =
+      getPrompt('dream', settings) +
+      (historyText ? '\n\n【你们刚才的对话】\n' + historyText : '') +
+      '\n\n【客人刚说】\n' +
+      text;
+
+    const baseMessages = assembleMessages(settings, material, taskText);
     const reqOpts = {
       signal: abort.signal,
       retries: settings.retries,
