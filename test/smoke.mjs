@@ -515,5 +515,21 @@ eq('finish_reason 被记录', withResult.result?.finishReason, 'tool_calls');
 ok('全局回复上限存在', typeof settingsMod.get().maxReplyTokens === 'number');
 ok('全局上限大于零', settingsMod.get().maxReplyTokens > 0);
 
+// 创作页也要走统一框架
+// 前面的导入导出测试把渠道清空了，先补回来
+settingsMod.patch({ channels: [ch] });
+try {
+  await engine.runStory('outline', { keyword: '测试关键词', scale: 'medium' });
+} catch {
+  /* mock 返回的不是大纲格式，解析会失败，但请求已经发出，够检查结构了 */
+}
+const om = lastRequestBody?.messages || [];
+eq('大纲第 1 段是 system', om[0]?.role, 'system');
+eq('大纲第 2 段是 assistant', om[1]?.role, 'assistant');
+eq('大纲第 3 段是 system', om[2]?.role, 'system');
+ok('messages 不是嵌套数组', !Array.isArray(om[0]));
+ok('大纲最后一段是任务', om[om.length - 1]?.role === 'system');
+ok('大纲任务段含关键词', String(om[om.length - 1]?.content || '').includes('测试关键词'));
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

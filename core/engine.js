@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.7.1';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.7.1';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.7.1';
-import { attachResult } from './inspect.js?v=2.7.1';
-import { buildTool, readToolArgs } from './tools.js?v=2.7.1';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.7.1';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.7.1';
+import { completeWithRetry } from './api.js?v=2.7.2';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.7.2';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.7.2';
+import { attachResult } from './inspect.js?v=2.7.2';
+import { buildTool, readToolArgs } from './tools.js?v=2.7.2';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.7.2';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.7.2';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -717,18 +717,18 @@ export async function runStory(action, params = {}) {
     if (action === 'outline') {
       const scale = params.scale || 'medium';
       const count = SCALE_COUNT[scale] || 4;
-      const { content: text } = await completeWithRetry(
+      const res = await callTask(
         ch,
-        [
-          assembleMessages(
-            settings,
-            material,
-            buildOutline(settings, { keyword: params.keyword, scale, count }),
-          ),
-        ],
+        'outline',
+        assembleMessages(
+          settings,
+          material,
+          buildOutline(settings, { keyword: params.keyword, scale, count }),
+        ),
         { signal: abort.signal, retries: settings.retries, stream: false },
+        settings,
       );
-      const outline = parseOutline(text);
+      const outline = parseOutline(res.args || res.content);
       if (!outline.length) throw new Error('模型没给出可用的大纲');
       saveStory({ keyword: params.keyword || '', scale, outline, steps: [], at: Date.now() });
     } else {
@@ -736,18 +736,18 @@ export async function runStory(action, params = {}) {
       if (!story.outline?.length) throw new Error('还没有大纲，先出大纲');
       const count = Math.min(12, Math.max(2, params.count || 5));
       const outlineText = story.outline.map((o) => `${o.n}. ${o.title ? o.title + '：' : ''}${o.text}`).join('\n');
-      const { content: text } = await completeWithRetry(
+      const res = await callTask(
         ch,
-        [
-          assembleMessages(
-            settings,
-            material,
-            '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }),
-          ),
-        ],
+        'steps',
+        assembleMessages(
+          settings,
+          material,
+          '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }),
+        ),
         { signal: abort.signal, retries: settings.retries, stream: false },
+        settings,
       );
-      const steps = parseSteps(text);
+      const steps = parseSteps(res.args || res.content);
       if (!steps.length) throw new Error('模型没给出可用的步骤');
       saveStory({ steps, stepCount: count, at: Date.now() });
     }
