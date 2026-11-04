@@ -3,9 +3,9 @@
   "loading_order": 120,
   "requires": [],
   "optional": [],
-  "js": "index.js?ver=2.9.3",
+  "js": "index.js?ver=2.9.4",
   "author": "cff",
-  "version": "2.9.3",
+  "version": "2.9.4",
   "homePage": "",
   "auto_update": false,
   "minimum_client_version": "1.12.13"

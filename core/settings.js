@@ -1,5 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.9.3';
-import { VERSION } from './version.js?v=2.9.3';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.9.4';
+import { VERSION } from './version.js?v=2.9.4';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';

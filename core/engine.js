@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.9.3';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.9.3';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.9.3';
-import { attachResult } from './inspect.js?v=2.9.3';
-import { buildTool, readToolArgs } from './tools.js?v=2.9.3';
-import { buildBeats, buildChoices, buildDanmaku, buildMoves, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.9.3';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.9.3';
+import { completeWithRetry } from './api.js?v=2.9.4';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.9.4';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.9.4';
+import { attachResult } from './inspect.js?v=2.9.4';
+import { buildTool, readToolArgs } from './tools.js?v=2.9.4';
+import { buildBeats, buildChoices, buildDanmaku, buildMoves, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.9.4';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.9.4';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -184,6 +184,16 @@ async function callTask(ch, task, messages, opts, settings) {
 
 let currentAbort = null;
 let running = false;
+/** 每个任务自己的取消控制器：重跑「弹幕」不该顺手杀掉「走向」 */
+const taskAborts = new Map();
+
+function signalFor(task, parentSignal) {
+  taskAborts.get(task)?.abort();
+  const c = new AbortController();
+  taskAborts.set(task, c);
+  if (parentSignal) parentSignal.addEventListener('abort', () => c.abort(), { once: true });
+  return c.signal;
+}
 
 /**
  * 跑一轮。
@@ -221,7 +231,8 @@ export async function run(opts = {}) {
     return;
   }
 
-  currentAbort?.abort();
+  // 不再无条件取消上一轮：切页面、切模式、单独重跑某一项时，
+  // 别的任务不该被牵连。同任务的重复触发由下面按任务名去重。
   const abort = new AbortController();
   currentAbort = abort;
   running = true;
@@ -246,7 +257,7 @@ export async function run(opts = {}) {
               ch,
               'choices',
               assembleMessages(settings, material, buildChoices(settings)),
-              { signal: abort.signal, retries: settings.retries, stream: false },
+              { signal: signalFor('choices', abort.signal), retries: settings.retries, stream: false },
               settings,
             );
             result.choices = parseChoices(res.args || res.content, settings.choiceCount);
@@ -273,7 +284,7 @@ export async function run(opts = {}) {
                 dmCh,
                 'danmaku',
                 assembleMessages(settings, material, buildDanmaku(settings)),
-                { signal: abort.signal, retries: 0, stream: false },
+                { signal: signalFor('danmaku', abort.signal), retries: 0, stream: false },
                 settings,
               );
               result.danmaku = parseDanmaku(res.args || res.content);
@@ -302,7 +313,7 @@ export async function run(opts = {}) {
               ch,
               'moves',
               assembleMessages(settings, material, buildMoves(settings, { count: 4 })),
-              { signal: abort.signal, retries: 0, stream: false },
+              { signal: signalFor('moves', abort.signal), retries: 0, stream: false },
               settings,
             );
             result.moves = parseMoves(res.args || res.content);
@@ -328,7 +339,7 @@ export async function run(opts = {}) {
               btCh,
               'beats',
               assembleMessages(settings, material, buildBeats(settings)),
-              { signal: abort.signal, retries: 0, stream: false },
+              { signal: signalFor('beats', abort.signal), retries: 0, stream: false },
               settings,
             );
             result.beats = parseBeats(res.args || res.content);
