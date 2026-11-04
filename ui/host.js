@@ -6,8 +6,8 @@
  * 是唯一能同时解决这两件事的办法。
  */
 
-import { detectTheme } from '../core/ctx.js?v=2.10.0';
-import { VERSION } from '../core/version.js?v=2.10.0';
+import { detectTheme } from '../core/ctx.js?v=2.10.1';
+import { VERSION } from '../core/version.js?v=2.10.1';
 
 const HOST_ID = 'meng-push-host';
 

@@ -1,5 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.10.0';
-import { VERSION } from './version.js?v=2.10.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.10.1';
+import { VERSION } from './version.js?v=2.10.1';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -23,6 +23,8 @@ export function defaults() {
       beats: false,
       /** 反派行动与走向互斥，同时开会多跑一次 */
       moves: false,
+      /** 新人介绍：每轮自动抽一个，不想要就关掉 */
+      intro: false,
     },
 
     choiceCount: 5,

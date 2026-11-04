@@ -15,8 +15,8 @@
  * 声明自己不用工具，是这类拦截器通用的放行信号。
  */
 
-import { getCtx } from './ctx.js?v=2.10.0';
-import { markSelf } from './inspect.js?v=2.10.0';
+import { getCtx } from './ctx.js?v=2.10.1';
+import { markSelf } from './inspect.js?v=2.10.1';
 
 export const GENERATE_URL = '/api/backends/chat-completions/generate';
 

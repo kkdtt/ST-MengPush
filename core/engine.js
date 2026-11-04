@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.10.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.10.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.10.0';
-import { attachResult } from './inspect.js?v=2.10.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.10.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.10.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.10.0';
+import { completeWithRetry } from './api.js?v=2.10.1';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.10.1';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.10.1';
+import { attachResult } from './inspect.js?v=2.10.1';
+import { buildTool, readToolArgs } from './tools.js?v=2.10.1';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.10.1';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.10.1';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -225,7 +225,7 @@ export async function run(opts = {}) {
 
   const tasks = opts.tasks
     ? opts.tasks.slice()
-    : ['choices', 'danmaku', 'beats', 'moves'].filter((t) => settings.modules[t]);
+    : ['choices', 'danmaku', 'beats', 'moves', 'intro'].filter((t) => settings.modules[t]);
 
   const ch = channelFor('choices');
   if (!channelReady(ch)) {

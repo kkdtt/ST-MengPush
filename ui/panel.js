@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.10.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.10.1';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.10.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.10.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.10.0';
-import { parsePreset } from '../core/import.js?v=2.10.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.10.0';
-import { testChannel } from '../core/api.js?v=2.10.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.10.0';
+} from '../core/engine.js?v=2.10.1';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.10.1';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.10.1';
+import { parsePreset } from '../core/import.js?v=2.10.1';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.10.1';
+import { testChannel } from '../core/api.js?v=2.10.1';
+import { clear, h, icon, makeDraggable } from './host.js?v=2.10.1';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -1042,6 +1042,9 @@ export function createPanel(shadow) {
     );
     g1.appendChild(
       switchRow('自动跑反派行动', s.modules.moves, (v) => patchSettings({ modules: { moves: v } })),
+    );
+    g1.appendChild(
+      switchRow('自动跑新人', s.modules.intro, (v) => patchSettings({ modules: { intro: v } })),
     );
     g1.appendChild(
       switchRow('节拍表（仅手动）', s.modules.beats, (v) => patchSettings({ modules: { beats: v } })),
