@@ -5,11 +5,13 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput } from '../core/ctx.js?v=1.3.0';
+import { fillInput } from '../core/ctx.js?v=1.4.0';
 import {
   cancel,
   clearHistory,
+  clearDream,
   clearStory,
+  getDream,
   getState,
   getStory,
   isRunning,
@@ -18,15 +20,17 @@ import {
   markStepDone,
   run,
   runOne,
+  runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.3.0';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.3.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.3.0';
-import { testChannel } from '../core/api.js?v=1.3.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.3.0';
+} from '../core/engine.js?v=1.4.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.4.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.4.0';
+import { testChannel } from '../core/api.js?v=1.4.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.4.0';
 
 const TABS = [
+  { id: 'dream', label: '梦中梦' },
   { id: 'choices', label: '走向' },
   { id: 'danmaku', label: '场外' },
   { id: 'beats', label: '节拍' },
@@ -235,7 +239,13 @@ export function createPanel(shadow) {
     if (settingsOpen) return;
     renderTabs(state);
 
-    // 创作页有自己的常驻输入区，不能走「清空重建」那条路，否则一打字就失焦
+    // 梦中梦和创作页都有常驻输入区，不能走「清空重建」那条路，否则一打字就失焦
+    if (activeTab === 'dream') {
+      renderDream(state);
+      renderFoot(state);
+      return;
+    }
+
     if (activeTab === 'story') {
       renderStory(state);
       renderFoot(state);
@@ -389,6 +399,119 @@ export function createPanel(shadow) {
         ]),
       );
     }
+  }
+
+  /* ---------------- 梦中梦 ---------------- */
+
+  const dreamLog = h('div', { class: 'dream-log' });
+  const dreamInput = h('textarea', {
+    class: 'dream-input',
+    rows: '2',
+    placeholder: '跟弥彦说点什么……（Enter 发送，Shift+Enter 换行）',
+  });
+  const dreamSend = h('button', {
+    class: 'mini-btn primary',
+    text: '说',
+    onclick: () => sendDream(),
+  });
+  const dreamWrap = h('div', { class: 'dream-wrap' }, [
+    dreamLog,
+    h('div', { class: 'dream-bar' }, [dreamInput, dreamSend]),
+  ]);
+
+  dreamInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendDream();
+    }
+  });
+
+  function sendDream() {
+    const t = dreamInput.value.trim();
+    if (!t) return;
+    dreamInput.value = '';
+    void runDream(t);
+  }
+
+  function renderDream(state) {
+    if (!bodyEl.contains(dreamWrap)) {
+      clear(bodyEl);
+      bodyEl.appendChild(dreamWrap);
+    }
+
+    const d = state.dream || getDream();
+    const running = state.status === 'running';
+    dreamSend.disabled = running;
+    dreamSend.textContent = running ? '…' : '说';
+
+    clear(dreamLog);
+
+    if (state.status === 'error' && state.error) {
+      dreamLog.appendChild(h('div', { class: 'error-box', text: state.error }));
+    }
+
+    if (!d.messages.length) {
+      dreamLog.appendChild(
+        h('div', { class: 'empty' }, [
+          '铺子里只有一盏灯',
+          h('span', {
+            class: 'hint',
+            text: '可以问他「林晚现在在想什么」，也可以说「这一段织得急了，拆了重来」',
+          }),
+        ]),
+      );
+      return;
+    }
+
+    for (const m of d.messages) {
+      const isUser = m.role === 'user';
+      const bubble = h('div', { class: 'dream-msg ' + (isUser ? 'user' : 'assistant') }, [
+        h('span', { class: 'dream-who', text: isUser ? '你' : '弥彦' }),
+        h('div', { class: 'dream-text', text: m.text }),
+      ]);
+
+      // 弥彦顺手递的走向，直接做成可点的卡片
+      if (!isUser && m.choices?.length) {
+        const wrap = h('div', { class: 'dream-choices' });
+        for (const c of m.choices) {
+          wrap.appendChild(
+            h('button', {
+              class: `choice type-${c.type}`,
+              title: '单击填入输入框，Ctrl+单击直接发送',
+              onclick: (e) => {
+                const send = e.ctrlKey || e.metaKey;
+                fillInput(c.text, send);
+                setStatus(send ? '已发送' : '已填入，改完发出去');
+              },
+            }, [
+              h('div', { class: 'choice-main' }, [
+                h('span', { class: 'choice-text', text: c.text }),
+                h('div', { class: 'choice-meta' }, [
+                  h('span', { class: 'chip type', text: c.type }),
+                  c.risk ? h('span', { class: `chip risk-${c.risk}`, text: '风险 ' + c.risk }) : null,
+                ]),
+              ]),
+            ]),
+          );
+        }
+        bubble.appendChild(wrap);
+      }
+
+      dreamLog.appendChild(bubble);
+    }
+
+    if (running) {
+      dreamLog.appendChild(
+        h('div', { class: 'dream-msg assistant pending' }, [
+          h('span', { class: 'dream-who', text: '弥彦' }),
+          h('div', { class: 'dream-text', text: '……' }),
+        ]),
+      );
+    }
+
+    requestAnimationFrame(() => {
+      bodyEl.scrollTop = bodyEl.scrollHeight;
+    });
   }
 
   /* ---------------- 创作页 ---------------- */

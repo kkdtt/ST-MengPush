@@ -9,11 +9,11 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=1.3.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=1.3.0';
-import { buildSnapshot, collectContext, parseJSON } from './parse.js?v=1.3.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel } from './prompts.js?v=1.3.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.3.0';
+import { completeWithRetry } from './api.js?v=1.4.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=1.4.0';
+import { buildSnapshot, collectContext, parseJSON } from './parse.js?v=1.4.0';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=1.4.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=1.4.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -29,6 +29,7 @@ const state = {
   result: null, // { choices, danmaku, beats, notes, at, messageId }
   history: [],
   story: null, // { keyword, scale, outline, steps, stepCount, busy }
+  dream: null, // { messages: [{role, text, at, choices, danmaku}] }
 };
 
 export function subscribe(fn) {
@@ -623,4 +624,132 @@ export function markStepDone(n) {
   const story = getStory();
   const steps = (story.steps || []).map((s) => (s.n === n ? { ...s, done: true } : s));
   saveStory({ steps });
+}
+
+/* ---------------- 梦中梦 ---------------- */
+
+const DREAM_KEY = 'meng_push_dream';
+const DREAM_KEEP = 12; // 只带最近 12 轮进上下文
+
+export function getDream() {
+  const d = readChatMeta(DREAM_KEY);
+  return d && Array.isArray(d.messages) ? d : { messages: [], at: 0 };
+}
+
+export function saveDream(patch) {
+  const next = { ...getDream(), ...patch };
+  writeChatMeta(DREAM_KEY, next);
+  emit({ dream: next });
+  return next;
+}
+
+export function loadDream() {
+  const d = getDream();
+  emit({ dream: d });
+  return d;
+}
+
+export function clearDream() {
+  writeChatMeta(DREAM_KEY, null);
+  emit({ dream: { messages: [], at: 0 } });
+}
+
+/** 去掉所有标签，模型没给 <say> 时的兜底。 */
+function stripTags(text) {
+  return String(text || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function parseDream(text) {
+  const raw = String(text || '');
+  const m = /<say>([\s\S]*?)<\/say>/i.exec(raw);
+  const say = m ? m[1].trim() : stripTags(raw);
+  return {
+    say: say || '（他没说话，只是把灯挪近了一点。）',
+    choices: parseChoices(raw, 6),
+    danmaku: parseDanmaku(raw),
+  };
+}
+
+/**
+ * 在铺子里跟弥彦说一句话。
+ * 人格提示词 + 世界规则 + 当前局面 + 最近几轮对话，一次性发过去。
+ */
+export async function runDream(input) {
+  const text = String(input || '').trim();
+  if (!text) return;
+
+  const settings = getSettings();
+  if (!settings.enabled) {
+    emit({ status: 'error', error: '推进台已关闭' });
+    return;
+  }
+
+  const ch = channelFor('choices');
+  if (!channelReady(ch)) {
+    emit({ status: 'error', error: '先去设置里配一个渠道' });
+    return;
+  }
+
+  const dream = getDream();
+  const history = dream.messages.slice(-DREAM_KEEP);
+
+  // 先把客人这句挂上去，界面上立刻能看到
+  const pending = { ...dream, messages: [...dream.messages, { role: 'user', text, at: Date.now() }] };
+  emit({ dream: pending, status: 'running', stage: '弥彦在想', error: '' });
+
+  currentAbort?.abort();
+  const abort = new AbortController();
+  currentAbort = abort;
+
+  try {
+    const ctx = await collectContext(settings);
+    const snapshot = buildSnapshot(ctx, settings);
+
+    const historyText = history
+      .map((m) => (m.role === 'user' ? '客人：' : '弥彦：') + m.text)
+      .join('\n');
+
+    const userMsg =
+      snapshot +
+      (historyText ? '\n\n【铺子里的对话】\n' + historyText : '') +
+      '\n\n【客人刚说】\n' + text;
+
+    const sys = getPrompt('dream', settings) + '\n\n---\n\n' + getKernel(settings);
+
+    const raw = await completeWithRetry(
+      ch,
+      [
+        { role: 'system', content: sys },
+        { role: 'user', content: userMsg },
+      ],
+      { signal: abort.signal, retries: settings.retries, stream: false },
+    );
+
+    const parsed = parseDream(raw);
+    const messages = [
+      ...pending.messages,
+      {
+        role: 'assistant',
+        text: parsed.say,
+        at: Date.now(),
+        choices: parsed.choices,
+        danmaku: parsed.danmaku,
+      },
+    ].slice(-40);
+
+    saveDream({ messages, at: Date.now() });
+    emit({ status: 'idle', stage: '' });
+  } catch (e) {
+    if (abort.signal.aborted) {
+      emit({ status: 'idle', stage: '', error: '已取消' });
+    } else {
+      console.error('[推进台] 梦中梦失败', e);
+      emit({ status: 'error', stage: '', error: e?.message || String(e), dream: pending });
+    }
+  } finally {
+    if (currentAbort === abort) currentAbort = null;
+  }
 }

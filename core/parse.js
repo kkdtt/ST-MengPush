@@ -9,7 +9,7 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo } from './ctx.js?v=1.3.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo } from './ctx.js?v=1.4.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -77,11 +77,22 @@ export function getMode() {
 export async function collectContext(settings) {
   const msgs = getVisibleMessages();
   const summaries = [];
-  const depth = Math.max(1, settings?.summaryDepth ?? 3);
 
-  for (let i = msgs.length - 1; i >= 0 && summaries.length < depth; i--) {
+  // 摘要按「字数预算」取，不按条数。
+  // 预设里摘要固定六字段、一条约 200 字，3 条根本不够 flash 建立前情。
+  // 旧楼层被 /hide 之后不影响这里——hide 只是不显示，数据还在 chat 数组里，
+  // 所以可以放心往回翻，翻到字数上限为止。
+  const maxChars = Math.max(400, settings?.summaryChars ?? 3200);
+  const maxCount = Math.max(1, settings?.summaryDepth ?? 20);
+  let used = 0;
+
+  for (let i = msgs.length - 1; i >= 0; i--) {
     const s = extractDetails(msgs[i].mes, '摘要');
-    if (s) summaries.unshift(s);
+    if (!s) continue;
+    if (summaries.length >= maxCount) break;
+    if (summaries.length && used + s.length > maxChars) break;
+    summaries.unshift(s);
+    used += s.length;
   }
 
   // 大总结：预设里「大总结」跑完会作为一条楼层留在聊天里

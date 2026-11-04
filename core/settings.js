@@ -1,4 +1,4 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=1.3.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=1.4.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -28,7 +28,10 @@ export function defaults() {
     prompts: { kernel: '', choices: '', danmaku: '', beats: '', outline: '', steps: '' },
 
     /** 上下文预算 */
-    summaryDepth: 3,
+    /** 摘要总字数预算（不是条数） */
+    summaryChars: 3200,
+    /** 摘要条数上限，防止极端情况下塞太多 */
+    summaryDepth: 20,
     tailChars: 1400,
     cardChars: 1200,
 

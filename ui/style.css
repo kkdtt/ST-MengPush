@@ -1001,3 +1001,118 @@ textarea {
   color: var(--fg);
   word-break: break-word;
 }
+
+/* ---------------- 梦中梦 ---------------- */
+
+.dream-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.dream-log {
+  flex: 1 1 auto;
+}
+
+.dream-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 9px 0 2px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+.dream-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  max-height: 110px;
+  padding: 7px 9px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.65;
+  resize: none;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.dream-input:focus {
+  border-color: var(--line-strong);
+}
+.dream-input::placeholder {
+  color: var(--fg-faint);
+}
+
+.dream-bar .mini-btn.primary {
+  flex: 0 0 auto;
+  padding: 8px 13px;
+}
+
+.dream-msg {
+  margin-bottom: 13px;
+}
+
+.dream-who {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--fg-faint);
+}
+
+.dream-text {
+  display: inline-block;
+  max-width: 90%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+}
+
+.dream-msg.assistant .dream-text {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-top-left-radius: 3px;
+}
+
+.dream-msg.user {
+  text-align: right;
+}
+.dream-msg.user .dream-who {
+  text-align: right;
+}
+.dream-msg.user .dream-text {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-top-right-radius: 3px;
+}
+
+.dream-msg.pending .dream-text {
+  color: var(--fg-faint);
+  animation: breathe 1.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.dream-choices {
+  margin-top: 7px;
+}
+.dream-choices .choice {
+  margin-bottom: 5px;
+}

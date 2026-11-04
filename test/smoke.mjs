@@ -214,6 +214,14 @@ eq('<step> 解析', sp.length, 2);
 eq('step 默认未完成', sp[0].done, false);
 eq('step 截断保住前面', engine.parseSteps('<step n="1">一</step>\n<step n="2">二</step>\n<step n="3">三').length, 2);
 
+// 梦中梦
+const dr = engine.parseDream('<say>坐。线还热着。</say>\n<option type="顺承" risk="低">把咖啡递过去</option>');
+eq('dream 提取 say', dr.say, '坐。线还热着。');
+ok('dream 顺带选项', dr.choices.length >= 1);  // 会自动补一条「退让」
+eq('dream 选项类型', dr.choices[0].type, '顺承');
+ok('无 say 时兜底不空', engine.parseDream('<option type="破局" risk="高">问她</option>').say.length > 0);
+eq('dream 纯文本也能读', engine.parseDream('线还够用。').say, '线还够用。');
+
 console.log('\n— 端到端 —');
 let seen = null;
 engine.subscribe((st) => {
