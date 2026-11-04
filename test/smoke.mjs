@@ -402,7 +402,7 @@ ok('parseDream 里已清理', !engine.parseDream('<say>**坐。**线还热着。
 // 梦中梦用更大的输出上限，并在被截断时自动续写
 globalThis.__dreamCall = 0;
 await engine.runDream('林晚现在在想什么');
-eq('梦中梦上限覆盖渠道默认', lastRequestBody.max_tokens, s.dreamMaxTokens || 4000);
+eq('梦中梦上限覆盖渠道默认', lastRequestBody.max_tokens, s.dreamMaxTokens || 12000);
 eq('触发了一次续写（共两次请求）', globalThis.__dreamCall, 2);
 
 const dreamMsgs = engine.getDream().messages;

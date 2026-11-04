@@ -9,11 +9,11 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.2.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.2.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.2.0';
-import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.2.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.2.0';
+import { completeWithRetry } from './api.js?v=2.2.1';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.2.1';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.2.1';
+import { buildBeats, buildChoices, buildDanmaku, buildOutline, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.2.1';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.2.1';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -798,7 +798,7 @@ export async function runDream(input) {
       retries: settings.retries,
       stream: false,
       // 梦中梦要回答长问题，单独给输出上限，否则半句话就断
-      maxTokens: settings.dreamMaxTokens || 4000,
+      maxTokens: settings.dreamMaxTokens || 12000,
     };
 
     let { content: raw, finishReason: fin } = await completeWithRetry(ch, baseMessages, reqOpts);
