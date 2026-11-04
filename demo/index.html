@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>造梦师 · 推进台 —— 离线演示</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #14120f;
+    color: #d9d3c7;
+    font: 15px/1.95 "MiSans", "Microsoft YaHei", -apple-system, system-ui, sans-serif;
+  }
+  .banner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    padding: 7px 16px;
+    background: rgba(185,168,143,.10);
+    border-bottom: 1px solid rgba(185,168,143,.22);
+    font-size: 11.5px; letter-spacing: .06em; color: #b9a88f;
+    text-align: center;
+  }
+  .chat { max-width: 700px; margin: 0 auto; padding: 58px 22px 240px; }
+  .msg {
+    background: rgba(255,255,255,.032);
+    border: 1px solid rgba(185,168,143,.13);
+    border-radius: 11px;
+    padding: 15px 19px;
+    margin-bottom: 16px;
+  }
+  .msg p { margin: 0 0 13px; }
+  .msg p:last-child { margin-bottom: 0; }
+  .msg .who {
+    font-size: 10px; letter-spacing: .18em; color: #7d7466;
+    margin-bottom: 9px; display: block;
+  }
+  .summary {
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px dashed rgba(185,168,143,.16);
+    font-size: 12px; line-height: 1.85; color: #8b8274;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+
+<div class="banner">离线演示 · 模型接口是假的，面板是真代码在跑</div>
+
+<div class="chat">
+  <div class="msg">
+    <span class="who">你</span>
+    <p>我去便利店买点东西。</p>
+  </div>
+
+  <div class="msg">
+    <span class="who">弥彦</span>
+    <p>她把袖子往下扯了扯：「冻的。」</p>
+    <p>便利店的自动门在她身后合上，暖风扑出来，玻璃上凝了一层雾。她把手里那罐咖啡换到另一只手，罐身上还留着指节的压痕。</p>
+    <p>「你怎么才来。」</p>
+    <p>不是问句。说完她就低头去拉拉链，拉到一半卡住了，用力扯了两下没扯动，也没抬头。</p>
+    <div class="summary">时间：2026年11月3日 21:40
+地点：旧城区／便利店门口
+对白：「你怎么才来。」
+情报：她在楼下站了四十分钟，没给任何人发消息
+行为：买了两罐热咖啡，拉链卡住
+情感：林晚对他，从无所谓到有点在意</div>
+  </div>
+</div>
+
+<script>
+  /* ---------------- 假数据 ---------------- */
+
+  const FAKE_CHOICES = {
+    choices: [
+      { type: '顺承', text: '把手里的咖啡递过去一罐，说买多了', risk: '低' },
+      { type: '横向', text: '伸手替她把卡住的拉链拉上去', risk: '中' },
+      { type: '升温', text: '「站了多久。」把外套脱下来搭在她肩上', risk: '中' },
+      { type: '切场', text: '切到二十分钟后，两个人坐在便利店窗边', risk: '低' },
+      { type: '破局', text: '「你等我，还是等这罐咖啡。」', risk: '高' },
+      { type: '退让', text: '什么都没说，靠在门边也站了一会儿', risk: '低' },
+    ],
+  };
+
+  const FAKE_DANMAKU = {
+    danmaku: [
+      '嘴上说冻的，手都紫了',
+      '这拉链是故意的吧',
+      '站四十分钟不打电话，图什么',
+      '外套呢？外套呢！',
+      '她低头那下明显是笑了',
+    ],
+  };
+
+  const FAKE_BEATS = {
+    beats: [
+      { phase: '前戏', n: 1, action: '她背对着门，钥匙插了两次没进去', react: '手停住，没回头', friction: '楼道里有人上下楼' },
+      { phase: '前戏', n: 2, action: '他从后面把手覆上去，帮她把钥匙转正', react: '肩膀绷了一下，没躲', friction: '门开的瞬间她先进去了' },
+      { phase: '过程', n: 3, action: '他把她抵在玄关的鞋柜上', react: '她抬手推了一下，力气很轻', friction: '鞋没脱，包还挂在肩上' },
+      { phase: '过程', n: 4, action: '她的手从他肩上滑到后颈，抓了一把头发', react: '他没说话，低头', friction: '隔壁传来关门声，两个人同时停了半秒' },
+      { phase: '事后', n: 5, action: '她先去开灯，站在玄关把鞋踢掉', react: '没看他，耳朵还是红的', friction: '谁都没提刚才那声关门' },
+    ],
+  };
+
+  /* ---------------- mock ST 上下文 ---------------- */
+
+  const chat = [
+    { name: 'You', is_user: true, mes: '我去便利店买点东西。' },
+    {
+      name: '林晚',
+      is_user: false,
+      mes: `<content>她把袖子往下扯了扯：「冻的。」
+
+便利店的自动门在她身后合上，暖风扑出来，玻璃上凝了一层雾。她把手里那罐咖啡换到另一只手，罐身上还留着指节的压痕。
+
+「你怎么才来。」
+
+不是问句。说完她就低头去拉拉链，拉到一半卡住了，用力扯了两下没扯动，也没抬头。</content>
+<details><summary>摘要</summary>时间：2026年11月3日 21:40
+地点：旧城区／便利店门口
+对白：「你怎么才来。」
+情报：她在楼下站了四十分钟，没给任何人发消息
+行为：买了两罐热咖啡，拉链卡住
+情感：林晚对他，从无所谓到有点在意</details>`,
+    },
+  ];
+
+  const listeners = {};
+  const settings = {};
+
+  window.SillyTavern = {
+    getContext: () => ({
+      chat,
+      chatMetadata: { variables: { mode: 'novel' } },
+      extensionSettings: settings,
+      characters: [{ name: '林晚', description: '大二，建筑系。嘴硬，怕冷，习惯等人但从不承认。', personality: '冷淡，克制，嘴硬' }],
+      characterId: 0,
+      name2: '林晚',
+      getRequestHeaders: () => ({ 'Content-Type': 'application/json' }),
+      saveSettingsDebounced: () => {},
+      saveMetadataDebounced: () => {},
+      eventSource: {
+        on: (ev, fn) => { (listeners[ev] ||= []).push(fn); },
+        off: (ev, fn) => { listeners[ev] = (listeners[ev] || []).filter((f) => f !== fn); },
+      },
+      eventTypes: {
+        GENERATION_ENDED: 'generation_ended',
+        CHAT_CHANGED: 'chat_changed',
+        MESSAGE_SWIPED: 'message_swiped',
+        SETTINGS_UPDATED: 'settings_updated',
+      },
+    }),
+  };
+
+  /* ---------------- mock 接口 ---------------- */
+
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (url, opt) => {
+    if (!String(url).includes('/api/backends/chat-completions/generate')) {
+      return realFetch(url, opt);
+    }
+
+    const body = JSON.parse(opt.body || '{}');
+    const userMsg = body.messages?.[1]?.content || '';
+    const payload = userMsg.includes('弹幕')
+      ? FAKE_DANMAKU
+      : userMsg.includes('节拍表')
+        ? FAKE_BEATS
+        : FAKE_CHOICES;
+
+    await new Promise((r) => setTimeout(r, 620));
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify(payload) } }] }),
+      text: async () => '',
+    };
+  };
+
+  /* 预置一个渠道，省得演示时还要填表单 */
+  settings.meng_push_settings = {
+    channels: [
+      {
+        id: 'ch_demo',
+        name: '演示渠道',
+        url: 'https://demo.local/v1',
+        key: 'sk-demo',
+        model: 'gemini-2.5-flash',
+        temperature: 0.95,
+        maxTokens: 900,
+        timeoutSec: 90,
+        stream: false,
+      },
+    ],
+    routing: { choices: 'ch_demo', danmaku: 'ch_demo', beats: 'ch_demo' },
+    auto: false,
+    modules: { choices: true, danmaku: true, beats: true },
+    choiceCount: 6,
+    danmakuChance: 1,
+    panel: { open: true, collapsed: false, tab: 'choices' },
+  };
+</script>
+
+<script type="module">
+  import '../index.js';
+
+  // 面板起来后自动跑一轮，模拟「正文刚写完」
+  setTimeout(() => {
+    const root = document.querySelector('#meng-push-host')?.shadowRoot;
+    const btn = root?.querySelector('.mini-btn.primary');
+    if (btn) btn.click();
+  }, 700);
+</script>
+
+</body>
+</html>

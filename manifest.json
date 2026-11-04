@@ -1,0 +1,12 @@
+{
+  "display_name": "造梦师 · 推进台",
+  "loading_order": 120,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "author": "cff",
+  "version": "1.0.0",
+  "homePage": "",
+  "auto_update": false,
+  "minimum_client_version": "1.12.13"
+}
