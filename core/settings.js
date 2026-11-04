@@ -1,4 +1,4 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=1.4.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=1.5.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -29,18 +29,18 @@ export function defaults() {
 
     /** 上下文预算 */
     /** 摘要总字数预算（不是条数） */
-    summaryChars: 3200,
+    summaryChars: 8000,
     /** 摘要条数上限，防止极端情况下塞太多 */
     summaryDepth: 20,
-    tailChars: 1400,
-    cardChars: 1200,
+    tailChars: 3000,
+    cardChars: 3000,
 
     /** 是否把世界书喂给旁路模型（强烈建议开） */
     includeWorldInfo: true,
     /** 扫描世界书时给主上下文的预算 */
-    worldInfoBudget: 4096,
-    /** 世界书内容截断长度，太长会稀释 flash 的注意力 */
-    worldInfoChars: 2400,
+    worldInfoBudget: 8192,
+    /** 世界书内容截断长度 */
+    worldInfoChars: 6000,
     /** 手填的背景设定（预设里的存档条目插件读不到，可以粘这里） */
     background: '',
 

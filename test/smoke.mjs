@@ -123,6 +123,7 @@ const { extractDetails, stripModules, getBody, parseJSON, collectContext, buildS
 const { normalizeUrl, buildRequestBody } = await import('../core/api.js');
 const settingsMod = await import('../core/settings.js');
 const engine = await import('../core/engine.js');
+const importer = await import('../core/import.js');
 
 console.log('\n— 解析层 —');
 const msg = CHAT[2].mes;
@@ -221,6 +222,26 @@ ok('dream 顺带选项', dr.choices.length >= 1);  // 会自动补一条「退�
 eq('dream 选项类型', dr.choices[0].type, '顺承');
 ok('无 say 时兜底不空', engine.parseDream('<option type="破局" risk="高">问她</option>').say.length > 0);
 eq('dream 纯文本也能读', engine.parseDream('线还够用。').say, '线还够用。');
+
+// 预设导入（用真实的预设文件验证，文件不在就跳过）
+const fsmod = await import('node:fs');
+const presetPath = 'D:/浏览器下载/造梦师_弥彦_v6.9_通用_带面板.json';
+if (fsmod.existsSync(presetPath)) {
+  const r = importer.parsePreset(fsmod.readFileSync(presetPath, 'utf8'));
+  ok('预设解析成功', r.ok, r.error || '');
+  ok('提取到六条以上', r.entries.length >= 6, '实际 ' + r.entries.length);
+  ok('含宪章', r.entries.some((e) => e.label === '宪章'));
+  ok('含人格', r.entries.some((e) => e.label === '人格'));
+  ok('含私密场景（两条）', r.entries.filter((e) => e.label === '私密').length === 2);
+  ok('内核字数够用', r.totalChars > 4000, '实际 ' + r.totalChars);
+  ok('宏已清干净', !/\{\{/.test(r.kernel));
+  ok('不含破甲条目', !r.kernel.includes('破甲'));
+  ok('不含存档条目', !r.kernel.includes('读档'));
+  eq('坏 JSON 有报错', importer.parsePreset('{oops').ok, false);
+  eq('非预设 JSON 有报错', importer.parsePreset('{"a":1}').ok, false);
+} else {
+  console.log('  skip  预设文件不存在，跳过导入测试');
+}
 
 console.log('\n— 端到端 —');
 let seen = null;

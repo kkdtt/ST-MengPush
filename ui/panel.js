@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput } from '../core/ctx.js?v=1.4.0';
+import { fillInput } from '../core/ctx.js?v=1.5.0';
 import {
   cancel,
   clearHistory,
@@ -23,11 +23,12 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.4.0';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.4.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.4.0';
-import { testChannel } from '../core/api.js?v=1.4.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.4.0';
+} from '../core/engine.js?v=1.5.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.5.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.5.0';
+import { parsePreset } from '../core/import.js?v=1.5.0';
+import { testChannel } from '../core/api.js?v=1.5.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.5.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -919,9 +920,98 @@ export function createPanel(shadow) {
     g5.appendChild(bg);
     box.appendChild(g5);
 
-    /* --- 关于 --- */
-    const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '关于' })]);
+    /* --- 预设导入 --- */
+    const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '预设导入' })]);
     g6.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        text: '从预设 JSON 里抽出人格、宪章、总纲、铁律、私密场景等条目，拼成内核。世界书 / 聊天记录 / 角色卡不在这里，那些由插件实时读取。',
+      }),
+    );
+
+    const preview = h('div', { class: 'import-preview' });
+
+    const fileInput = h('input', {
+      type: 'file',
+      accept: '.json,application/json',
+      style: { display: 'none' },
+      onchange: async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+
+        clear(preview);
+        preview.className = 'import-preview';
+        preview.textContent = '读取中…';
+
+        try {
+          const text = await file.text();
+          const r = parsePreset(text);
+
+          if (!r.ok) {
+            preview.className = 'import-preview fail';
+            preview.textContent = r.error;
+            return;
+          }
+
+          preview.className = 'import-preview';
+          preview.appendChild(
+            h('div', {
+              class: 'import-head',
+              text: `${file.name} · 提取 ${r.entries.length} 条 · ${r.totalChars} 字`,
+            }),
+          );
+
+          const list = h('div', { class: 'import-list' });
+          for (const en of r.entries) {
+            list.appendChild(h('span', { class: 'chip', text: `${en.label} ${en.chars}` }));
+          }
+          preview.appendChild(list);
+
+          preview.appendChild(
+            h('div', { class: 'story-ctrl' }, [
+              h('button', {
+                class: 'mini-btn primary',
+                text: '应用为内核',
+                onclick: () => {
+                  patchSettings({ prompts: { ...getSettings().prompts, kernel: r.kernel } });
+                  preview.className = 'import-preview ok';
+                  preview.textContent = `已应用，内核 ${r.totalChars} 字。去「提示词」分段能看和改。`;
+                },
+              }),
+              h('button', {
+                class: 'mini-btn',
+                text: '取消',
+                onclick: () => {
+                  clear(preview);
+                  preview.className = 'import-preview';
+                },
+              }),
+            ]),
+          );
+        } catch (err) {
+          preview.className = 'import-preview fail';
+          preview.textContent = '读取失败：' + (err?.message || err);
+        }
+      },
+    });
+
+    g6.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '选择预设 JSON',
+          onclick: () => fileInput.click(),
+        }),
+        fileInput,
+      ]),
+    );
+    g6.appendChild(preview);
+    box.appendChild(g6);
+
+    /* --- 关于 --- */
+    const g7 = h('div', { class: 'set-group' }, [h('h4', { text: '关于' })]);
+    g7.appendChild(
       h('div', {
         class: 'empty',
         style: { padding: '4px 0', textAlign: 'left', lineHeight: '1.9' },
@@ -931,7 +1021,7 @@ export function createPanel(shadow) {
           '单击卡片填入输入框，Ctrl+单击直接发送。',
       }),
     );
-    box.appendChild(g6);
+    box.appendChild(g7);
   }
 
   /** 单个提示词编辑器。空串 = 用默认，所以「恢复默认」就是把它清空。 */
