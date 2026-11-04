@@ -15,7 +15,8 @@
  * 声明自己不用工具，是这类拦截器通用的放行信号。
  */
 
-import { getCtx } from './ctx.js?v=1.5.0';
+import { getCtx } from './ctx.js?v=1.6.0';
+import { markSelf } from './inspect.js?v=1.6.0';
 
 export const GENERATE_URL = '/api/backends/chat-completions/generate';
 
@@ -134,12 +135,19 @@ export async function complete(channel, messages, opts = {}) {
   opts.signal?.addEventListener('abort', onOuterAbort, { once: true });
 
   try {
-    const resp = await fetch(GENERATE_URL, {
-      method: 'POST',
-      headers: ctx.getRequestHeaders(),
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
+    // 打个标记，让检视页能把「推进台自己发的」和「主对话发的」分开
+    let resp;
+    markSelf(1);
+    try {
+      resp = await fetch(GENERATE_URL, {
+        method: 'POST',
+        headers: ctx.getRequestHeaders(),
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+    } finally {
+      markSelf(-1);
+    }
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');

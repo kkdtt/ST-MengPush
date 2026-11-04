@@ -1,0 +1,124 @@
+/**
+ * 请求检视。
+ *
+ * 只做一件事：旁观 ST 发出去的生成请求，把请求体留下来给人看。
+ *
+ * 为什么用 hook fetch 而不是别的手段：
+ *   · ST 的 generate_interceptor 拿到的是 chat 数组，不含预设拼装、世界书注入、
+ *     正则处理后的最终结果——那是半成品，看了没用；
+ *   · 只有拦在 fetch 这一层，才是真正发出去的那份字节。
+ *
+ * 安全性：只读不改写。原函数照常调用、原参数原样传回，不碰 response。
+ * 即使这里出异常也只是记录失败，不影响生成。
+ */
+
+const MAX_RECORDS = 8;
+
+let records = [];
+const listeners = new Set();
+let installed = false;
+
+function emit() {
+  for (const fn of listeners) {
+    try {
+      fn(records);
+    } catch (e) {
+      console.error('[推进台] 检视监听器报错', e);
+    }
+  }
+}
+
+export function subscribe(fn) {
+  listeners.add(fn);
+  fn(records);
+  return () => listeners.delete(fn);
+}
+
+export function getRecords() {
+  return records;
+}
+
+export function clearRecords() {
+  records = [];
+  emit();
+}
+
+/** 标记「这条请求是推进台自己发的」，用来跟主对话区分。 */
+/**
+ * 拿「真正被调用」的那个 fetch 宿主。
+ * 浏览器里 window === globalThis，无所谓；但测试环境（happy-dom）里
+ * window.fetch 和模块实际用的 globalThis.fetch 是两个东西，
+ * 挂错地方就一条都抓不到。所以优先 globalThis。
+ */
+function hostWindow() {
+  if (typeof globalThis.fetch === 'function') return globalThis;
+  if (typeof window !== 'undefined' && typeof window.fetch === 'function') return window;
+  return globalThis;
+}
+
+export function markSelf(delta) {
+  const w = hostWindow();
+  w.__mengPushSelf = Math.max(0, (w.__mengPushSelf || 0) + delta);
+}
+
+function capture(url, bodyText) {
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    return;
+  }
+
+  const w = hostWindow();
+  const self = (w.__mengPushSelf || 0) > 0;
+  const msgs = Array.isArray(body?.messages) ? body.messages : [];
+
+  const messages = msgs.map((m) => ({
+    role: String(m?.role || '?'),
+    content: String(m?.content ?? ''),
+  }));
+
+  records.unshift({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    at: Date.now(),
+    self,
+    url: String(url),
+    model: String(body?.model || ''),
+    temperature: body?.temperature,
+    maxTokens: body?.max_tokens,
+    stream: !!body?.stream,
+    count: messages.length,
+    chars: messages.reduce((n, m) => n + m.content.length, 0),
+    messages,
+  });
+
+  if (records.length > MAX_RECORDS) records.length = MAX_RECORDS;
+  emit();
+}
+
+export function install() {
+  if (installed) return;
+  // 浏览器里 window === globalThis；测试环境里 window 可能是 mock 对象，
+  // 这时要退回到 globalThis 才拿得到真的 fetch。
+  const w = hostWindow();
+  if (typeof w.fetch !== 'function') return;
+
+  installed = true;
+  const original = w.fetch;
+
+  w.fetch = function patchedFetch(input, init) {
+    try {
+      const url = typeof input === 'string' ? input : input?.url || '';
+      // 注意是 chat-completions（连字符），不是 chat/completions。
+      // 用 indexOf 而不是正则，省得再踩一次转义和字符的坑。
+      if (url.indexOf('chat-completions/generate') >= 0 && init && typeof init.body === 'string') {
+        capture(url, init.body);
+      }
+    } catch (e) {
+      console.warn('[推进台] 抓请求失败', e);
+    }
+    return original.apply(this, arguments);
+  };
+
+  console.log('[推进台] 请求检视已挂载');
+}

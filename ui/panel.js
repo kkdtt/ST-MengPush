@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput } from '../core/ctx.js?v=1.5.0';
+import { fillInput } from '../core/ctx.js?v=1.6.0';
 import {
   cancel,
   clearHistory,
@@ -23,12 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.5.0';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.5.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.5.0';
-import { parsePreset } from '../core/import.js?v=1.5.0';
-import { testChannel } from '../core/api.js?v=1.5.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.5.0';
+} from '../core/engine.js?v=1.6.0';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.6.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.6.0';
+import { parsePreset } from '../core/import.js?v=1.6.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=1.6.0';
+import { testChannel } from '../core/api.js?v=1.6.0';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.6.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -804,8 +805,22 @@ export function createPanel(shadow) {
             renderSettings();
           },
         }),
+        h('button', {
+          class: settingsTab === 'inspect' ? 'on' : '',
+          text: '检视',
+          onclick: () => {
+            settingsTab = 'inspect';
+            renderSettings();
+          },
+        }),
       ]),
     );
+
+    // 检视页：看真实发出去的请求
+    if (settingsTab === 'inspect') {
+      renderInspect(box);
+      return;
+    }
 
     // 提示词页单独一屏，不再塞在设置页最底下
     if (settingsTab === 'prompts') {
@@ -1022,6 +1037,105 @@ export function createPanel(shadow) {
       }),
     );
     box.appendChild(g7);
+  }
+
+  /* ---------------- 检视页 ---------------- */
+
+  function renderInspect(box) {
+    const recs = getRecords();
+
+    const g = h('div', { class: 'set-group' }, [h('h4', { text: '最近发出去的请求' })]);
+    g.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        text: '只读不改写。主对话那一条含预设拼装、世界书注入、正则处理后的最终内容——就是模型真正收到的东西。',
+      }),
+    );
+
+    if (!recs.length) {
+      g.appendChild(
+        h('div', { class: 'empty' }, [
+          '还没有抓到请求',
+          h('span', { class: 'hint', text: '去聊天里发一条，或者点一次「重跑」，再回来看' }),
+        ]),
+      );
+      box.appendChild(g);
+      return;
+    }
+
+    g.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '清空记录',
+          onclick: () => {
+            clearRecords();
+            renderSettings();
+          },
+        }),
+      ]),
+    );
+
+    for (const r of recs) g.appendChild(recordCard(r));
+    box.appendChild(g);
+  }
+
+  function recordCard(r) {
+    const time = new Date(r.at).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    const wrap = h('details', { class: 'rec' }, [
+      h('summary', { class: 'rec-sum' }, [
+        h('span', { class: 'rec-tag ' + (r.self ? 'self' : 'main'), text: r.self ? '推进台' : '主对话' }),
+        h('span', { class: 'rec-time', text: time }),
+        h('span', { class: 'rec-meta', text: `${r.count} 条 · ${r.chars} 字` }),
+      ]),
+    ]);
+
+    const body = h('div', { class: 'rec-body' });
+    body.appendChild(
+      h('div', {
+        class: 'rec-param',
+        text: `model ${r.model || '-'}　temp ${r.temperature ?? '-'}　max_tokens ${r.maxTokens ?? '-'}　stream ${r.stream}`,
+      }),
+    );
+
+    for (const m of r.messages) {
+      body.appendChild(
+        h('details', { class: 'rec-msg' }, [
+          h('summary', { class: 'rec-msg-sum' }, [
+            h('span', { class: 'rec-role ' + m.role, text: m.role }),
+            h('span', { class: 'rec-len', text: m.content.length + ' 字' }),
+            h('span', { class: 'rec-peek', text: m.content.slice(0, 44).replace(/\s+/g, ' ') }),
+          ]),
+          h('div', { class: 'rec-text', text: m.content }),
+        ]),
+      );
+    }
+
+    body.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '复制全文',
+          onclick: async () => {
+            const full = r.messages.map((m) => `[${m.role}]\n${m.content}`).join('\n\n');
+            try {
+              await navigator.clipboard.writeText(full);
+              setStatus('已复制到剪贴板');
+            } catch {
+              setStatus('复制失败，试试手动选中', 'err');
+            }
+          },
+        }),
+      ]),
+    );
+
+    wrap.appendChild(body);
+    return wrap;
   }
 
   /** 单个提示词编辑器。空串 = 用默认，所以「恢复默认」就是把它清空。 */

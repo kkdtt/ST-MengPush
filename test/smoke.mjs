@@ -267,5 +267,47 @@ const cached = engine.getCached(2);
 ok('按 messageId 落缓存', !!cached && cached.choices.length === st.result.choices.length);
 ok('历史已记录', engine.loadHistory().length >= 1);
 
+// 请求检视
+// 注意必须用带 ?v= 的同一个 URL 导入：api.js 里 import 的是 './inspect.js?v=x.y.z'，
+// 裸路径在 node 里会被当成另一个模块实例，records 是两份，读不到。
+const { VERSION } = await import('../core/version.js');
+const insp = await import(`../core/inspect.js?v=${VERSION}`);
+insp.install();
+await globalThis.fetch('/api/backends/chat-completions/generate', {
+  method: 'POST',
+  body: JSON.stringify({
+    model: 'demo-model',
+    temperature: 0.9,
+    max_tokens: 500,
+    stream: false,
+    messages: [
+      { role: 'system', content: '这是系统提示' },
+      { role: 'user', content: '这是用户输入' },
+    ],
+  }),
+});
+await globalThis.fetch('/api/other/endpoint', { method: 'POST', body: '{}' });
+
+const recs = insp.getRecords();
+eq('抓到生成请求', recs.length, 1);
+eq('非生成端点不记', recs.filter((r) => r.url.includes('/api/other')).length, 0);
+eq('模型名记录正确', recs[0].model, 'demo-model');
+eq('消息条数', recs[0].count, 2);
+eq('字数统计', recs[0].chars, '这是系统提示'.length + '这是用户输入'.length);
+eq('参数被记下', recs[0].temperature, 0.9);
+ok('默认判为主对话', recs[0].self === false);
+
+insp.markSelf(1);
+await globalThis.fetch('/api/backends/chat-completions/generate', {
+  method: 'POST',
+  body: JSON.stringify({ model: 'x', messages: [{ role: 'user', content: 'hi' }] }),
+});
+insp.markSelf(-1);
+ok('自身请求被标出来', insp.getRecords()[0].self === true);
+eq('最多保留八条', (() => { for (let i = 0; i < 12; i++) insp.getRecords(); return insp.getRecords().length; })(), 2);
+
+insp.clearRecords();
+eq('清空后为零', insp.getRecords().length, 0);
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

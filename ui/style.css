@@ -1144,3 +1144,137 @@ textarea {
   gap: 5px;
   margin-bottom: 9px;
 }
+
+/* ---------------- 请求检视 ---------------- */
+
+.rec {
+  margin-bottom: 7px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rec > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  font-size: 11.5px;
+  cursor: pointer;
+  list-style: none;
+}
+.rec > summary::-webkit-details-marker {
+  display: none;
+}
+.rec > summary::before {
+  content: '▸';
+  color: var(--fg-faint);
+  font-size: 9px;
+  transition: transform 0.15s;
+}
+.rec[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.rec-tag {
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
+  border-radius: 4px;
+}
+.rec-tag.main {
+  background: rgba(111, 155, 196, 0.18);
+  color: #6f9bc4;
+}
+.rec-tag.self {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.rec-time {
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.rec-meta {
+  margin-left: auto;
+  color: var(--fg-faint);
+  font-size: 10.5px;
+}
+
+.rec-body {
+  padding: 0 9px 9px;
+  border-top: 1px solid var(--line);
+}
+
+.rec-param {
+  padding: 6px 0;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--fg-faint);
+  word-break: break-all;
+}
+
+.rec-msg {
+  margin-bottom: 4px;
+  border-left: 2px solid var(--line);
+}
+.rec-msg > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+.rec-msg > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rec-role {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-size: 9.5px;
+  line-height: 14px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  color: var(--fg-dim);
+}
+.rec-role.system {
+  color: #8d86b8;
+}
+.rec-role.user {
+  color: #6fb79a;
+}
+.rec-role.assistant {
+  color: #c97b93;
+}
+
+.rec-len {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+
+.rec-peek {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-faint);
+}
+
+.rec-text {
+  max-height: 300px;
+  margin: 0 0 6px 8px;
+  padding: 7px 8px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.72;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 5px;
+}
