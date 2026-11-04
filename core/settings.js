@@ -1,4 +1,4 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=1.6.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=1.6.1';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -37,7 +37,7 @@ export function defaults() {
 
     /** 是否把世界书喂给旁路模型（强烈建议开） */
     includeWorldInfo: true,
-    /** 扫描世界书时给主上下文的预算 */
+    /** 已废弃：扫描预算改为按 worldInfoChars 联动计算，保留字段仅为兼容旧配置 */
     worldInfoBudget: 8192,
     /** 世界书内容截断长度 */
     worldInfoChars: 6000,

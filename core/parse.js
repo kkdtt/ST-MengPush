@@ -9,7 +9,7 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo } from './ctx.js?v=1.6.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo } from './ctx.js?v=1.6.1';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -136,10 +136,14 @@ export async function collectContext(settings) {
     card = lines.filter(Boolean).join('\n').trim();
   }
 
-  // 世界书：读不到就是空串，不影响流程
+  // 世界书：读不到就是空串，不影响流程。
+  // 扫描预算跟着「世界书截断」走——预算给小了，条目根本没被激活，
+  // 后面截断多长都没意义。中文 1 字约 0.7 token，这里留足余量。
   let worldInfo = '';
   if (settings?.includeWorldInfo !== false) {
-    worldInfo = await getWorldInfo(settings?.worldInfoBudget ?? 4096);
+    const wiChars = settings?.worldInfoChars ?? 6000;
+    const budget = Math.max(8192, Math.round(wiChars * 1.2));
+    worldInfo = await getWorldInfo(budget);
   }
 
   return {

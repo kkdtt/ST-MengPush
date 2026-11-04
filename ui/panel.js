@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput } from '../core/ctx.js?v=1.6.0';
+import { fillInput } from '../core/ctx.js?v=1.6.1';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=1.6.0';
-import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.6.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.6.0';
-import { parsePreset } from '../core/import.js?v=1.6.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=1.6.0';
-import { testChannel } from '../core/api.js?v=1.6.0';
-import { clear, h, icon, makeDraggable } from './host.js?v=1.6.0';
+} from '../core/engine.js?v=1.6.1';
+import { get as getSettings, newChannel, patch as patchSettings } from '../core/settings.js?v=1.6.1';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=1.6.1';
+import { parsePreset } from '../core/import.js?v=1.6.1';
+import { clearRecords, getRecords } from '../core/inspect.js?v=1.6.1';
+import { testChannel } from '../core/api.js?v=1.6.1';
+import { clear, h, icon, makeDraggable } from './host.js?v=1.6.1';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -897,12 +897,19 @@ export function createPanel(shadow) {
 
     /* --- 参数 --- */
     const g4 = h('div', { class: 'set-group' }, [h('h4', { text: '参数' })]);
-    g4.appendChild(numRow('选项条数', s.choiceCount, 3, 8, 1, (v) => patchSettings({ choiceCount: v })));
+    g4.appendChild(numRow('选项条数', s.choiceCount, 3, 20, 1, (v) => patchSettings({ choiceCount: v }), '条'));
     g4.appendChild(
-      numRow('弹幕概率', s.danmakuChance, 0, 1, 0.1, (v) => patchSettings({ danmakuChance: v })),
+      numRow('弹幕概率', s.danmakuChance, 0, 1, 0.05, (v) => patchSettings({ danmakuChance: v })),
     );
-    g4.appendChild(numRow('摘要回溯', s.summaryDepth, 1, 8, 1, (v) => patchSettings({ summaryDepth: v }), '轮'));
-    g4.appendChild(numRow('正文尾部', s.tailChars, 400, 4000, 100, (v) => patchSettings({ tailChars: v }), '字'));
+    g4.appendChild(
+      numRow('摘要条数', s.summaryDepth, 1, 200, 1, (v) => patchSettings({ summaryDepth: v }), '条'),
+    );
+    g4.appendChild(
+      numRow('摘要字数', s.summaryChars, 400, 200000, 500, (v) => patchSettings({ summaryChars: v }), '字'),
+    );
+    g4.appendChild(
+      numRow('正文尾部', s.tailChars, 400, 200000, 500, (v) => patchSettings({ tailChars: v }), '字'),
+    );
     g4.appendChild(
       switchRow('喂世界书给旁路模型', s.includeWorldInfo, (v) => {
         patchSettings({ includeWorldInfo: v });
@@ -910,10 +917,17 @@ export function createPanel(shadow) {
       }),
     );
     g4.appendChild(
-      numRow('世界书截断', s.worldInfoChars, 400, 8000, 200, (v) => patchSettings({ worldInfoChars: v }), '字'),
+      numRow('世界书截断', s.worldInfoChars, 400, 200000, 1000, (v) => patchSettings({ worldInfoChars: v }), '字'),
     );
     g4.appendChild(
-      numRow('角色卡长度', s.cardChars, 300, 4000, 100, (v) => patchSettings({ cardChars: v }), '字'),
+      numRow('角色卡长度', s.cardChars, 300, 50000, 500, (v) => patchSettings({ cardChars: v }), '字'),
+    );
+    g4.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        style: { marginTop: '2px' },
+        text: '单位是字。中文大约 1 字 ≈ 0.7 token，100k token 对应 14 万字左右。数字改完立刻存，失焦时会把超出范围的值修正并回显。',
+      }),
     );
     box.appendChild(g4);
 
@@ -1192,18 +1206,46 @@ export function createPanel(shadow) {
     return h('label', { class: 'switch' }, [input, h('span', { text: label })]);
   }
 
+  /**
+   * 数字输入。
+   *
+   * 之前用 onchange，只在失焦时提交——输入完直接切页签或关面板就丢了，
+   * 加上外层还有 clamp，用户看到的和存下的不是一回事。
+   * 现在：输入时就防抖保存，失焦时再兜一次并回显真实值。
+   */
   function numRow(label, value, min, max, step, onChange, suffix = '') {
+    let timer = null;
+
+    const commit = (raw) => {
+      const v = Number(raw);
+      if (!Number.isFinite(v)) return;
+      const clamped = Math.min(max, Math.max(min, v));
+      // 回显真正存下的值——被上限截断时用户立刻能看见
+      if (String(clamped) !== String(raw)) input.value = String(clamped);
+      onChange(clamped);
+    };
+
     const input = h('input', {
       type: 'number',
       min: String(min),
       max: String(max),
       step: String(step),
       value: String(value),
-      onchange: (e) => {
-        const v = Number(e.target.value);
-        if (Number.isFinite(v)) onChange(Math.min(max, Math.max(min, v)));
+      oninput: (e) => {
+        const raw = e.target.value;
+        clearTimeout(timer);
+        // 输入过程中不打断、不 clamp，避免打到一半被改写
+        timer = setTimeout(() => {
+          const v = Number(raw);
+          if (Number.isFinite(v) && v >= min && v <= max) onChange(v);
+        }, 400);
+      },
+      onblur: (e) => {
+        clearTimeout(timer);
+        commit(e.target.value);
       },
     });
+
     return h('div', { class: 'row' }, [
       h('label', { text: label }),
       input,
