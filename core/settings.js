@@ -1,6 +1,6 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.19.0';
-import { PROMPT_FIELDS } from './prompts.js?v=2.19.0';
-import { VERSION } from './version.js?v=2.19.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.20.0';
+import { PROMPT_FIELDS } from './prompts.js?v=2.20.0';
+import { VERSION } from './version.js?v=2.20.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -57,7 +57,10 @@ export function defaults() {
     summaryRegex: '',
 
     /** 自定义提示词：空串表示用内置默认。key 见 prompts.js 的 PROMPT_FIELDS。 */
-    prompts: Object.fromEntries(PROMPT_FIELDS.map((f) => [f.key, ''])),
+    prompts: Object.fromEntries(
+      // pad 故意不预置：缺省 = 用内置默认；用户清空 = 这轮不要垫文
+      PROMPT_FIELDS.filter((f) => f.key !== 'pad').map((f) => [f.key, '']),
+    ),
 
     /** 上下文预算 */
     /** 最近几层以「真实对话」形式发给旁路模型，更早的用摘要 */
@@ -265,7 +268,12 @@ function normalize(obj) {
   };
 
   const prompts = out.prompts && typeof out.prompts === 'object' ? out.prompts : {};
-  out.prompts = Object.fromEntries(PROMPT_FIELDS.map((f) => [f.key, String(prompts[f.key] ?? '')]));
+  out.prompts = Object.fromEntries(
+    PROMPT_FIELDS
+      // pad 不补空串：补了就等于「关掉垫文」，跟缺省语义冲突
+      .filter((f) => f.key !== 'pad' || prompts.pad !== undefined)
+      .map((f) => [f.key, f.key === 'pad' ? String(prompts.pad) : String(prompts[f.key] ?? '')]),
+  );
 
   const routing = out.routing && typeof out.routing === 'object' ? out.routing : {};
   out.routing = Object.fromEntries(

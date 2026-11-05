@@ -150,6 +150,7 @@ const {
   collectContext,
   buildSnapshot,
   buildMaterialContext,
+  buildMemoryContext,
   buildChatHistory,
   buildRecentBodies,
   extractSummary,
@@ -189,12 +190,14 @@ const mat = buildMaterialContext(ctx, s);
 ok('不再输出【当前模式】', !mat.includes('当前模式'));
 ok('有世界观与人物设定块', mat.includes('<世界观与人物设定>'));
 ok('有世界规则与其他补充材料块', mat.includes('<世界规则与其他补充材料>'));
-ok('有过往事件块', mat.includes('<过往事件>'));
+const mem = buildMemoryContext(ctx, s);
+ok('记忆层有过往事件块', mem.includes('<过往事件>'));
+ok('记忆层有梦境资料壳', mem.includes('<梦境资料>'));
 ok('世界书 before 落在世界观块', mat.indexOf('旧城区常年下雨') < mat.indexOf('</世界观与人物设定>'));
 ok('世界书 after 落在规则块', mat.indexOf('门禁十一点') > mat.indexOf('<世界规则与其他补充材料>'));
 ok('角色卡落在世界观块', mat.indexOf('性格：') < mat.indexOf('</世界观与人物设定>'));
-ok('大总结落在过往事件块', mat.indexOf('每周三来买同一款咖啡') > mat.indexOf('<过往事件>'));
-ok('摘要在过往事件块里', mat.indexOf('21:40') > mat.indexOf('<过往事件>'));
+ok('大总结落在过往事件块', mem.indexOf('每周三来买同一款咖啡') > mem.indexOf('<过往事件>'));
+ok('摘要在过往事件块里', mem.indexOf('21:40') > mem.indexOf('<过往事件>'));
 ok('过往事件不带 user 标记', !/<\/?user>/.test(mat));
 ok('资料段不含破甲垫文', !mat.includes('破甲') && !mat.includes('织梦宪章'));
 
@@ -314,9 +317,14 @@ ok('结果带 messageId', typeof st.result?.messageId === 'number' && st.result.
 ok('请求体确实发出', lastRequestBody?.model === 'gemini-2.5-flash');
 /** 按内容找内核：破甲是小说样本、设置是工作性质声明，都靠特征排除掉 */
 function kernelIndex(msgs) {
-  const i = (msgs || []).findIndex(
-    (m) => m.role === 'system' && String(m.content || '').includes('弥彦'),
+  const list = msgs || [];
+  // 用标签定位，别用「弥彦」二字——设置层那句「弥彦，看来刚才…」也含这两个字
+  let i = list.findIndex(
+    (m) => m.role === 'system' && String(m.content || '').includes('<弥彦·造梦师>'),
   );
+  if (i < 0) {
+    i = list.findIndex((m) => m.role === 'system' && String(m.content || '').includes('织梦宪章'));
+  }
   return i < 0 ? 0 : i;
 }
 const ki = kernelIndex(lastRequestBody?.messages);
@@ -325,20 +333,22 @@ ok('提示词用了内核', String(lastRequestBody?.messages?.[ki]?.content).inc
 const M = lastRequestBody?.messages || [];
 const KI = kernelIndex(M);
 ok('内核是 system', M[KI]?.role === 'system' && M[KI].content.includes('弥彦'));
-eq('认领紧跟内核', M[KI + 1]?.role, 'assistant');
-eq('资料在认领之后', M[KI + 2]?.role, 'system');
-ok('资料段含世界书', M[KI + 2]?.content.includes('旧城区常年下雨'));
+eq('内核之后是资料', M[KI + 1]?.role, 'system');
+ok('资料带抬头引导语', String(M[KI + 1]?.content).includes('抬起头'));
+ok('资料段含世界书', M[KI + 1]?.content.includes('旧城区常年下雨'));
 // 认领挪到聊天记录之后了
-const ackIdx = M.findIndex((m, i) => i > 0 && m.role === 'assistant' && m.content.length > 20);
-ok('认领在资料之后', ackIdx > 1, '实际位置 ' + ackIdx);
-const emptyUser = M.findIndex((m) => m.role === 'user' && m.content === '');
-ok('末尾有一条空 user', emptyUser > 0, '实际位置 ' + emptyUser);
-ok('空 user 在任务之前', emptyUser === M.length - 2, `空 user ${emptyUser} / 任务 ${M.length - 1}`);
-ok('资料段含角色卡', M[KI + 2].content.includes('林晚'));
-ok('资料段含大总结', M[KI + 2].content.includes('每周三来买同一款咖啡'));
-ok('资料段含过往事件块', M[KI + 2].content.includes('<过往事件>'));
+ok('倒数第二条是认领', M[M.length - 2]?.role === 'assistant', '实际 ' + M[M.length - 2]?.role);
+ok('认领说「我全都想起来了」', String(M[M.length - 2]?.content).includes('全都想起来了'));
+ok('最后一条是任务', M[M.length - 1]?.role === 'system');
+ok('认领在记忆层之后', M.length - 2 > M.findIndex((m) => String(m.content).includes('<梦境资料>')));
+ok('资料段含角色卡', M[KI + 1].content.includes('林晚'));
+const MEM = M.find((m) => String(m.content).includes('<梦境资料>'));
+ok('记忆层单独一条', !!MEM);
+ok('记忆层含大总结', String(MEM?.content).includes('每周三来买同一款咖啡'));
+ok('记忆层含过往事件块', String(MEM?.content).includes('<过往事件>'));
+ok('记忆层在资料之后', M.indexOf(MEM) > KI + 1);
 ok('最后一段是任务', M[M.length - 1].role === 'system' && M[M.length - 1].content.includes('下一步'));
-ok('资料段不混正文', !M[KI + 2].content.includes('冻的'));
+ok('资料段不混正文', !M[KI + 1].content.includes('冻的'));
 
 // 真实对话段：最近 N 层以 user/assistant 交替出现
 s.historyDepth = 6;
@@ -420,7 +430,7 @@ eq('正则写坏时退回默认', getBody('<content>默认</content>', { bodyReg
 eq('没配正则时走默认', getBody('<content>默认</content>', {}), '默认');
 
 // 背景设定归到过往事件
-const matBg = buildMaterialContext({ ...ctx, background: '这是手填的存档' }, s);
+const matBg = buildMemoryContext({ ...ctx, background: '这是手填的存档' }, s);
 const bgAt = matBg.indexOf('这是手填的存档');
 ok('背景在过往事件块内', bgAt > matBg.indexOf('<过往事件>') && bgAt < matBg.indexOf('</过往事件>'));
 ok('背景不在规则块', !(bgAt > matBg.indexOf('<世界规则与其他补充材料>') && bgAt < matBg.indexOf('</世界规则与其他补充材料>')));
@@ -447,10 +457,9 @@ eq('触发了一次续写（共两次请求）', globalThis.__dreamCall, 2);
 const dmMsgs = lastRequestBody.messages || [];
 const DKI = kernelIndex(dmMsgs);
 ok('梦中梦有内核', String(dmMsgs[DKI]?.content || '').includes('弥彦'));
-eq('梦中梦认领紧跟内核', dmMsgs[DKI + 1]?.role, 'assistant');
-eq('梦中梦资料在认领之后', dmMsgs[DKI + 2]?.role, 'system');
+eq('梦中梦内核之后是资料', dmMsgs[DKI + 1]?.role, 'system');
+ok('梦中梦最后有认领', dmMsgs[dmMsgs.length - 2]?.role === 'assistant');
 ok('梦中梦有认领', dmMsgs.some((m) => m.role === 'assistant' && m.content.length > 20));
-ok('梦中梦末尾有空 user', dmMsgs.some((m) => m.role === 'user' && m.content === ''));
 
 // 新提示词用了 {{user_last_input}}，不会再追加【客人刚说】，改按人格标记找
 const taskMsg = dmMsgs.find(
@@ -458,7 +467,7 @@ const taskMsg = dmMsgs.find(
 );
 ok('任务段存在且是 system', !!taskMsg);
 ok('任务段含弥彦人格', String(taskMsg?.content || '').includes('线筐'));
-ok('前两段与走向同源（内核+资料）', dmMsgs[0].role === 'system' && dmMsgs[1].role === 'system');
+ok('梦中梦也用同一套开场', String(dmMsgs[0].content).includes('走廊'));
 
 // 占位符：写了就替换到指定位置，不再末尾追加
 const origDream = s.prompts.dream;
@@ -553,10 +562,9 @@ try {
 const om = lastRequestBody?.messages || [];
 const OKI = kernelIndex(om);
 eq('大纲有内核', om[OKI]?.role, 'system');
-eq('大纲认领紧跟内核', om[OKI + 1]?.role, 'assistant');
-eq('大纲资料在认领之后', om[OKI + 2]?.role, 'system');
+eq('大纲内核之后是资料', om[OKI + 1]?.role, 'system');
+ok('大纲最后有认领', om[om.length - 2]?.role === 'assistant');
 ok('大纲有认领', om.some((m) => m.role === 'assistant' && m.content.length > 20));
-ok('大纲末尾有空 user', om.some((m) => m.role === 'user' && m.content === ''));
 ok('messages 不是嵌套数组', !Array.isArray(om[0]));
 ok('大纲最后一段是任务', om[om.length - 1]?.role === 'system');
 ok('大纲任务段含关键词', String(om[om.length - 1]?.content || '').includes('测试关键词'));
@@ -652,7 +660,6 @@ const matWithWb = buildMaterialContext({ ...ctx, worldbook: '这是导入的全�
 const ruleEnd = matWithWb.indexOf('</世界规则与其他补充材料>');
 const wbAt = matWithWb.indexOf('这是导入的全局世界书');
 ok('世界书在规则块之后', wbAt > ruleEnd && ruleEnd >= 0, `规则块结束 ${ruleEnd} / 世界书 ${wbAt}`);
-ok('世界书在过往事件之前', wbAt < matWithWb.indexOf('<过往事件>'));
 
 // 世界书统计
 const wbStat = wbMod.worldbookStats(parsedWb);
@@ -664,16 +671,18 @@ const savedPad = s.prompts.pad;
 s.prompts.pad = '这是垫文，用来测试';
 settingsMod.patch({ prompts: { ...s.prompts, pad: '这是垫文，用来测试' } });
 const withPad = await engine.previewMessages();
-eq('破限层是第 1 条', withPad[0].role, 'system');
-ok('破限层内容对', withPad[0].content.includes('这是垫文'));
-eq('破限层之后是内核', withPad[1].role, 'system');
-ok('破限之后是设置层', withPad[1].content.includes('本轮工作性质'), withPad[1].content.slice(0, 30));
-ok('设置之后才是内核', withPad[2].content.includes('弥彦'));
+eq('场景层是第 1 条', withPad[0].role, 'system');
+ok('场景层写推门进来', withPad[0].content.includes('走廊'), withPad[0].content.slice(0, 20));
+eq('垫文是第 2 条且为 assistant', withPad[1].role, 'assistant');
+ok('垫文内容对', withPad[1].content.includes('这是垫文'));
+eq('设置层是第 3 条', withPad[2].role, 'system');
+ok('设置层含失忆引导', withPad[2].content.includes('记忆一片一片捡回来'), withPad[2].content.slice(0, 30));
+ok('设置之后才是内核', withPad[3].content.includes('弥彦'));
 
 settingsMod.patch({ prompts: { ...getSettingsSafe(), pad: '' } });
 const noPad = await engine.previewMessages();
 ok('留空时不发破限层', !noPad.some((m) => String(m.content).includes('这是垫文')));
-eq('没有破限层时第 1 条是内核', noPad[0].role, 'system');
+eq('没有垫文时第 2 条是设置层', noPad[1].role, 'system');
 
 function getSettingsSafe() {
   return settingsMod.get().prompts;
@@ -694,7 +703,6 @@ const pv = await engine.previewMessages();
 ok('预览有内核', pv[0].role === 'system');
 ok('预览有资料', pv.some((m) => m.role === 'system' && String(m.content).includes('<世界观与人物设定>')));
 ok('预览有认领', pv.some((m) => m.role === 'assistant' && String(m.content).length > 20));
-ok('预览有空 user', pv.some((m) => m.role === 'user' && m.content === ''));
 ok('预览最后一条是任务', pv[pv.length - 1].role === 'system');
 
 // 任务段用 <本轮任务和要求> 包住

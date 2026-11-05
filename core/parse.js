@@ -9,8 +9,8 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.19.0';
-import { buildWorldbookText } from './worldbook.js?v=2.19.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.20.0';
+import { buildWorldbookText } from './worldbook.js?v=2.20.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -303,29 +303,56 @@ export function buildSnapshot(ctx, settings) {
  */
 export function buildMaterialContext(ctx, settings) {
   const base = buildSystemContext(ctx, settings);
-  const parts = base ? [base] : [];
+  if (!base) return '';
 
-  // 过往事件：手填的背景（通常是存档/大总结）→ 自动抓到的大总结 → 更早的摘要
+  // 外部上下文是整段原样搬过来的，不加引导语
+  if (ctx.external) return base;
+
+  // 客人讲完身份，接着把资料递过去。这句是预设原文，
+  // 让「身份 → 资料」读起来是同一段戏，不是两个数据块。
+  return (
+    '手艺也找回来了。最后，抬起头，看看正坐在你铺子对面等你的这位客人，' +
+    '还有你们刚刚织到一半的梦境底片：\n\n' +
+    '<!-- 下面是客人和梦境的资料-->\n\n' +
+    base
+  );
+}
+
+/**
+ * 记忆层。
+ *
+ * 跟资料层分开：资料是「世界是什么样」，记忆是「这一场演到哪了」。
+ * 预设里这两块也是一前一后，中间隔着客人的一句话。
+ *
+ * <梦境资料> 是外层壳，<过往事件> 装大总结和更早的摘要；
+ * 最近几层不在这里——它们以真实 user/assistant 消息跟在后面。
+ */
+export function buildMemoryContext(ctx, settings) {
   const hist = [];
+
   if (ctx.background) hist.push(ctx.background);
   if (ctx.bigSummary) hist.push(ctx.bigSummary);
   if (ctx.summaries.length) {
     hist.push(ctx.summaries.map((s, i) => `(${i + 1}) ${s}`).join('\n'));
   }
 
-  if (hist.length) {
-    parts.push('<过往事件>\n' + cleanUserMarks(hist.join('\n\n')) + '\n</过往事件>');
-  }
+  const body = cleanUserMarks(hist.join('\n\n'));
 
-  return parts.join('\n\n');
+  const parts = ['<梦境资料>', '<过往事件>'];
+  if (body) {
+    parts.push(body);
+    parts.push('（更早发生的事：当事实用，不要重演，不要改结论，摘要里不要再重复。）');
+  }
+  parts.push('</过往事件>');
+
+  return parts.join('\n');
 }
 
 /**
  * 最近 N 条 assistant 的正文，全文不截。
  *
- * 梦中梦用它当「梦里此刻」。之前取的是最后 3000 字，
- * 但三千字经常只够半场戏——开头谁在场、事情怎么起的，全被切掉了。
- * 三条完整的输出反而更能看出这一场是怎么走到现在的。
+ * 梦中梦用它当「梦里此刻」。三千字经常只够半场戏——
+ * 开头谁在场、事情怎么起的，全被切掉了。
  */
 export function buildRecentBodies(n = 3, settings) {
   const list = getVisibleMessages().filter((m) => !m.is_user);

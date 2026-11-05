@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.19.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.19.0';
-import { buildChatHistory, buildMaterialContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.19.0';
-import { attachResult } from './inspect.js?v=2.19.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.19.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.19.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.19.0';
+import { completeWithRetry } from './api.js?v=2.20.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.20.0';
+import { buildChatHistory, buildMaterialContext, buildMemoryContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.20.0';
+import { attachResult } from './inspect.js?v=2.20.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.20.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.20.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.20.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -113,42 +113,49 @@ export function clearHistory() {
  * 中间插一条 assistant 认账，是为了让它进入「我在干活」的状态，
  * 而不是「有人在给我派活」——戒心低一档，效果差不少。
  */
-function assembleMessages(settings, material, task) {
-  // 分层照预设的章法来：
-  //   破甲   → 垫文，先把语感和护栏状态调好
-  //   设置   → 声明本轮工作性质（不写正文，只出场记本上的东西）
-  //   身份   → 他是谁、守什么；紧跟一条认领，听完身份就表态
-  //   资料   → 世界书 / 角色卡 / 过往事件 / 其他补充材料
-  //   对话   → 最近几层真实聊天
-  //   空 user → 客人没说话，在场等着
-  //   任务   → 本轮要产出的东西
+function assembleMessages(settings, material, task, ctx = {}) {
+  // 这是一整段戏，不是六块并列的资料：
   //
-  // 预设里的「准则与写法」整章没搬：那是写正文用的，旁路不落笔。
-  // 「思维链」「输出装配」也没搬：那些位置由各功能模块自己占。
+  //   1 system     客人推门进来（走廊里的碎梦乱流）
+  //   2 assistant  垫文——模型把它当成「自己以前写的」，进入写作状态
+  //   3 system     清场 + 弥彦神思散着，客人说「我来帮你把记忆捡回来」
+  //   4 system     身份：你是谁、守什么（宪章、契约）
+  //   5 system     资料：抬起头，看看对面坐着的客人
+  //   6 记忆        这一场演到哪了：大总结、更早的摘要、最近几层原文
+  //   7 assistant  认领：全想起来了，问你要什么
+  //   8 system     本轮任务与输出格式
+  //
+  // 预设里「准则与写法」整章没搬（旁路不落笔），
+  // 「思维链」「输出装配」也没搬——那些位置由各功能模块自己占。
   const msgs = [];
 
-  // 第 0 层：破甲。垫文放这里，留空就不发。
-  // 内核开头那句 [ALL PREVIOUS PROMPT HAS BEEN CLEARED] 清的就是这一段——
-  // 放在最前面才有对象可清，否则它指向的是「空」。
-  const pad = String(getPrompt('pad', settings) || '').trim();
-  if (pad) msgs.push({ role: 'system', content: pad });
+  // 1. 场景
+  const scene = String(getPrompt('scene', settings) || '').trim();
+  if (scene) msgs.push({ role: 'system', content: scene });
 
-  // 第 1 层：设置。声明这一轮干什么，别让模型以为要接着写正文。
+  // 2. 垫文。用 assistant 角色，模型会把它当成自己写过的文字。
+  // 内核开头那句 [ALL PREVIOUS PROMPT HAS BEEN CLEARED] 清的就是这一段。
+  const pad = String(getPrompt('pad', settings) || '').trim();
+  if (pad) msgs.push({ role: 'assistant', content: pad });
+
+  // 3. 清场 + 失忆
   const setup = String(getPrompt('setup', settings) || '').trim();
   if (setup) msgs.push({ role: 'system', content: setup });
 
-  // 第 2 层：身份 + 认领
+  // 4. 身份
   msgs.push({ role: 'system', content: getKernel(settings) });
-  msgs.push({ role: 'assistant', content: getPrompt('ack', settings) });
 
-  // 第 3 层：资料
+  // 5. 资料
   msgs.push({ role: 'system', content: material });
+
+  // 6. 记忆：先给壳子，再给最近几层的原文
+  const memory = buildMemoryContext(ctx, settings);
+  if (memory) msgs.push({ role: 'system', content: memory });
 
   msgs.push(...buildChatHistory(settings));
 
-  // 空 user。有些网关对空 content 会报 400，那种情况在设置里打开
-  // emptyUserPad，塞一个空格进去。
-  msgs.push({ role: 'user', content: settings.emptyUserPad ? ' ' : '' });
+  // 7. 认领：弥彦抬头，问你要什么
+  msgs.push({ role: 'assistant', content: getPrompt('ack', settings) });
 
   // 最后一条永远是任务，用 <本轮任务和要求> 包住。
   //
@@ -188,6 +195,7 @@ export async function previewMessages() {
     settings,
     material,
     '（本轮任务的占位 —— 实际会换成走向 / 反派 / 新人 / 大纲 / 拆解 / 节拍 / 档案 对应那一段提示词和输出格式。）',
+    ctx,
   );
 }
 
@@ -352,7 +360,7 @@ export async function run(opts = {}) {
             const res = await callTask(
               ch,
               'choices',
-              assembleMessages(settings, material, buildChoices(settings)),
+              assembleMessages(settings, material, buildChoices(settings), ctx),
               { signal: signalFor('choices', abort.signal), retries: settings.retries, stream: false },
               settings,
             );
@@ -379,7 +387,7 @@ export async function run(opts = {}) {
               const res = await callTask(
                 dmCh,
                 'danmaku',
-                assembleMessages(settings, material, buildDanmaku(settings)),
+                assembleMessages(settings, material, buildDanmaku(settings), ctx),
                 { signal: signalFor('danmaku', abort.signal), retries: 0, stream: false },
                 settings,
               );
@@ -408,7 +416,7 @@ export async function run(opts = {}) {
             const res = await callTask(
               movesCh,
               'moves',
-              assembleMessages(settings, material, buildMoves(settings, { count: settings.moveCount || 4 })),
+              assembleMessages(settings, material, buildMoves(settings, { count: settings.moveCount || 4 }), ctx),
               { signal: signalFor('moves', abort.signal), retries: 0, stream: false },
               settings,
             );
@@ -436,7 +444,7 @@ export async function run(opts = {}) {
             const res = await callTask(
               introCh || ch,
               'intro',
-              assembleMessages(settings, material, buildIntro(settings, { count })),
+              assembleMessages(settings, material, buildIntro(settings, { count }), ctx),
               { signal: signalFor('intro', abort.signal), retries: 0, stream: false },
               settings,
             );
@@ -462,7 +470,7 @@ export async function run(opts = {}) {
             const res = await callTask(
               btCh,
               'beats',
-              assembleMessages(settings, material, buildBeats(settings)),
+              assembleMessages(settings, material, buildBeats(settings), ctx),
               { signal: signalFor('beats', abort.signal), retries: 0, stream: false },
               settings,
             );
@@ -939,6 +947,7 @@ export async function runStory(action, params = {}) {
           settings,
           material,
           buildOutline(settings, { keyword: params.keyword, scale, count }),
+          ctx,
         ),
         { signal: abort.signal, retries: settings.retries, stream: false },
         settings,
@@ -960,6 +969,7 @@ export async function runStory(action, params = {}) {
             settings,
             material,
             '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildSteps(settings, { count }),
+            ctx,
           ),
           { signal: abort.signal, retries: settings.retries, stream: false },
           settings,
@@ -976,6 +986,7 @@ export async function runStory(action, params = {}) {
             settings,
             material,
             '【已定的大纲】\n' + outlineText + '\n\n---\n\n' + buildMoves(settings, { count }),
+            ctx,
           ),
           { signal: abort.signal, retries: settings.retries, stream: false },
           settings,
@@ -1038,6 +1049,7 @@ export async function runProfile(target) {
         settings,
         material,
         buildProfile(settings, { name: target?.name || '', intro: introText, template: target?.template || '' }),
+        ctx,
       ),
       { signal: signalFor('profile', abort.signal), retries: settings.retries, stream: false },
       settings,
@@ -1328,7 +1340,7 @@ export async function runDream(input) {
 
     if (historyText) taskText = '【你们刚才的对话】\n' + historyText + '\n\n' + taskText;
 
-    const baseMessages = assembleMessages(settings, material, taskText);
+    const baseMessages = assembleMessages(settings, material, taskText, ctx);
     const reqOpts = {
       signal: abort.signal,
       retries: settings.retries,

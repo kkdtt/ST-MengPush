@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.19.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.20.0';
 import {
   cancel,
   clearHistory,
@@ -26,13 +26,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.19.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.19.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.19.0';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.19.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.19.0';
-import { testChannel } from '../core/api.js?v=2.19.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.19.0';
+} from '../core/engine.js?v=2.20.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.20.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.20.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.20.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.20.0';
+import { testChannel } from '../core/api.js?v=2.20.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.20.0';
 
 /**
  * 顶层三组：自动 / 手动 / 设置。
@@ -76,31 +76,47 @@ const PROMPT_LAYERS = [
   {
     name: '破甲',
     title: '第 0 层 · 破甲',
-    desc: '垫文。放写作样本、破限话术，调语感和护栏状态。留空就不发这条。',
+    desc: '客人推门进来，然后垫一段写作样本。',
   },
   {
     name: '设置',
     title: '第 1 层 · 设置',
-    desc: '声明本轮工作性质。预设里这层装变量，旁路换成「我不写正文，只出场记本上的东西」。',
+    desc: '清场 + 失忆。客人说「我来帮你把记忆一片一片捡回来」，然后才递身份。',
   },
   {
     name: '身份',
     title: '第 2 层 · 身份',
-    desc: '他是谁、守什么，加一条听完身份就表态的认领。',
+    desc: '他是谁、守什么。宪章和契约都在这一层。',
   },
   {
     name: '资料',
-    title: '第 3 层 · 资料',
-    desc: '这一层不用编辑，每次自动拼装：',
+    title: '第 3 层 · 资料 · 自动拼装',
+    desc: '身份讲完，客人说「抬起头，看看对面坐着的客人」。这一层不用编辑：',
     preview: `<世界观与人物设定>        世界书 before + 角色卡
 <世界规则与其他补充材料>   世界书 after + @深度条目
-<其他补充材料>            你导入的那本世界书（开着的条目）
-<过往事件>               大总结 + 更早的剧情摘要`,
+<其他补充材料>            你导入的那本世界书（开着的条目）`,
+  },
+  {
+    name: '记忆',
+    title: '第 4 层 · 记忆 · 自动拼装',
+    desc: '这一场演到哪了。资料是「世界什么样」，记忆是「演到哪了」：',
+    preview: `<梦境资料>
+<过往事件>
+大总结 + 更早的剧情摘要
+（更早发生的事：当事实用，不要重演，不要改结论，摘要里不要再重复。）
+</过往事件>
+
+后面接最近 6 层的真实聊天记录（user / assistant 交替）`,
+  },
+  {
+    name: '认领',
+    title: '第 5 层 · 认领',
+    desc: '弥彦抬起头，眼神清亮：「我全都想起来了。」然后问你要什么。',
   },
   {
     name: '功能模块',
-    title: '第 4 层 · 功能模块',
-    desc: '换哪块内容，就跑哪个功能。框架不动。',
+    title: '第 6 层 · 功能模块',
+    desc: '认领问完「你要什么」，这一层就是回答。换哪块内容，就跑哪个功能。',
   },
 ];
 
