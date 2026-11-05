@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.12.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.13.0';
 import {
   cancel,
   clearHistory,
@@ -17,19 +17,20 @@ import {
   isRunning,
   loadHistory,
   loadStory,
+  previewMessages,
   run,
   runOne,
   runProfile,
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.12.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.12.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.12.0';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.12.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.12.0';
-import { testChannel } from '../core/api.js?v=2.12.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.12.0';
+} from '../core/engine.js?v=2.13.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.13.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.13.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.13.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.13.0';
+import { testChannel } from '../core/api.js?v=2.13.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.13.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -1216,6 +1217,49 @@ export function createPanel(shadow) {
         }),
       );
     }
+    /* --- 上下文预览 --- */
+    const previewBox = h('div', { class: 'pv-box' });
+
+    g4.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '预览本次上下文',
+          title: '把这次会发出去的内容拼出来给你看，不消耗请求',
+          onclick: async () => {
+            clear(previewBox);
+            previewBox.textContent = '拼装中…';
+            try {
+              const msgs = await previewMessages();
+              clear(previewBox);
+              msgs.forEach((m, i) => {
+                const empty = m.role === 'user' && !String(m.content || '').trim();
+                previewBox.appendChild(
+                  h('div', { class: 'pv-msg' + (empty ? ' pv-empty' : '') }, [
+                    h('div', { class: 'pv-head' }, [
+                      h('span', { class: `pv-role ${m.role}`, text: m.role }),
+                      h('span', { class: 'pv-idx', text: '#' + (i + 1) }),
+                      h('span', {
+                        class: 'pv-len',
+                        text: empty ? '空' : String(m.content || '').length + ' 字',
+                      }),
+                    ]),
+                    h('pre', {
+                      class: 'pv-body',
+                      text: empty ? '（客人没说话 —— 这一条是故意留空的 user）' : m.content,
+                    }),
+                  ]),
+                );
+              });
+            } catch (err) {
+              previewBox.textContent = '拼装失败：' + (err?.message || err);
+            }
+          },
+        }),
+      ]),
+    );
+    g4.appendChild(previewBox);
+
     g4.appendChild(
       switchRow('工具通道（抗截断）', s.useToolChannel, (v) => {
         patchSettings({ useToolChannel: v });

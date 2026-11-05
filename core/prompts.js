@@ -468,6 +468,14 @@ export const DEFAULT_DREAM = `【当前状态：梦中梦（暂停故事，造�
 /** 设置页按这个顺序渲染编辑器。 */
 export const PROMPT_FIELDS = [
   {
+    key: 'pad',
+    label: '破限层',
+    hint:
+      '放在所有内容最前面的一条 system，用来存垫文。留空就不发这条。' +
+      '内核开头那句 [ALL PREVIOUS PROMPT HAS BEEN CLEARED] 清掉的就是它。',
+    rows: 10,
+  },
+  {
     key: 'kernel',
     label: '内核',
     hint: '系统提示。决定 flash 用什么口径理解这个世界。改这里会同时影响三个功能。',
@@ -536,6 +544,7 @@ export const PROMPT_FIELDS = [
 ];
 
 const DEFAULTS = {
+  pad: '',
   kernel: DEFAULT_KERNEL,
   choices: DEFAULT_CHOICES,
   danmaku: DEFAULT_DANMAKU,

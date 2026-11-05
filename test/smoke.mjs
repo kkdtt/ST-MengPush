@@ -638,5 +638,42 @@ const wbStat = wbMod.worldbookStats(parsedWb);
 eq('统计总数', wbStat.total, 4);
 eq('统计开着数', wbStat.on, 2);
 
+// 破限层：有内容就排第一，空就不发
+const savedPad = s.prompts.pad;
+s.prompts.pad = '这是垫文，用来测试';
+settingsMod.patch({ prompts: { ...s.prompts, pad: '这是垫文，用来测试' } });
+const withPad = await engine.previewMessages();
+eq('破限层是第 1 条', withPad[0].role, 'system');
+ok('破限层内容对', withPad[0].content.includes('这是垫文'));
+eq('破限层之后是内核', withPad[1].role, 'system');
+ok('内核紧接破限层', withPad[1].content.includes('弥彦'));
+
+settingsMod.patch({ prompts: { ...getSettingsSafe(), pad: '' } });
+const noPad = await engine.previewMessages();
+ok('留空时不发破限层', !noPad.some((m) => String(m.content).includes('这是垫文')));
+eq('没有破限层时第 1 条是内核', noPad[0].role, 'system');
+
+function getSettingsSafe() {
+  return settingsMod.get().prompts;
+}
+
+// 世界书用 <其他补充材料> 包起来
+const matTag = buildMaterialContext({ ...ctx, worldbook: '世界书内容' }, s);
+ok('世界书有 <其他补充材料> 标签', matTag.includes('<其他补充材料>') && matTag.includes('</其他补充材料>'));
+ok('世界书在标签内', (() => {
+  const open = matTag.indexOf('<其他补充材料>');
+  const close = matTag.indexOf('</其他补充材料>');
+  const body = matTag.indexOf('世界书内容');
+  return body > open && body < close;
+})());
+
+// 预览：结构完整，空 user 用空串
+const pv = await engine.previewMessages();
+ok('预览有内核', pv[0].role === 'system');
+ok('预览有资料', pv.some((m) => m.role === 'system' && String(m.content).includes('<世界观与人物设定>')));
+ok('预览有认领', pv.some((m) => m.role === 'assistant' && String(m.content).length > 20));
+ok('预览有空 user', pv.some((m) => m.role === 'user' && m.content === ''));
+ok('预览最后一条是任务', pv[pv.length - 1].role === 'system');
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

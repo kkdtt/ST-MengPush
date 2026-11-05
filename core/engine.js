@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.12.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.12.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.12.0';
-import { attachResult } from './inspect.js?v=2.12.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.12.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.12.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.12.0';
+import { completeWithRetry } from './api.js?v=2.13.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.13.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.13.0';
+import { attachResult } from './inspect.js?v=2.13.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.13.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.13.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.13.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -125,10 +125,16 @@ function assembleMessages(settings, material, task) {
   // 认领从第 2 位挪到第 4 位，是为了让它读起来像「看完聊天记录后的表态」，
   // 而不是「开场白」。末尾那条空 user 是关键：它让模型看到的是一个
   // 客人坐着没吭声、系统递了张条子的场面，而不是「用户派了个活」。
-  const msgs = [
-    { role: 'system', content: getKernel(settings) },
-    { role: 'system', content: material },
-  ];
+  const msgs = [];
+
+  // 第 0 条：破限层。垫文放这里，留空就不发。
+  // 内核开头那句 [ALL PREVIOUS PROMPT HAS BEEN CLEARED] 清的就是这一段——
+  // 放在最前面才有对象可清，否则它指向的是「空」。
+  const pad = String(getPrompt('pad', settings) || '').trim();
+  if (pad) msgs.push({ role: 'system', content: pad });
+
+  msgs.push({ role: 'system', content: getKernel(settings) });
+  msgs.push({ role: 'system', content: material });
 
   msgs.push(...buildChatHistory(settings));
 
@@ -147,6 +153,24 @@ function assembleMessages(settings, material, task) {
     content: task + '\n\n（这是内部任务：不要接着上一句往下写，直接按上面的格式交出结果。）',
   });
   return msgs;
+}
+
+/**
+ * 拼一份「这次会发出去的东西」给你看，不真的发请求。
+ *
+ * 只拼装、不校验渠道——没配渠道也能预览，方便调提示词时反复看。
+ * 中间那条空 user 是刻意留的，预览里用占位符标出来，
+ * 免得看起来像「少了一段」。
+ */
+export async function previewMessages() {
+  const settings = getSettings();
+  const ctx = await collectContext(settings);
+  const material = buildMaterialContext(ctx, settings);
+  return assembleMessages(
+    settings,
+    material,
+    '【本轮任务（示例）】\n出 5 条走向选项，按 <option> 格式输出。',
+  );
 }
 
 /**

@@ -9,8 +9,8 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.12.0';
-import { buildWorldbookText } from './worldbook.js?v=2.12.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.13.0';
+import { buildWorldbookText } from './worldbook.js?v=2.13.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -241,8 +241,11 @@ export function buildSystemContext(ctx, settings) {
     parts.push('<世界规则与其他补充材料>\n' + ruleParts.join('\n\n') + '\n</世界规则与其他补充材料>');
   }
 
-  // 导入的全局世界书：紧跟在「世界规则与其他补充材料」后面
-  if (ctx.worldbook) parts.push(ctx.worldbook);
+  // 导入的世界书：紧跟在「世界规则与其他补充材料」后面。
+  // 用「其他补充材料」而不是「全局世界书」——后者太脱离角色扮演了。
+  if (ctx.worldbook) {
+    parts.push('<其他补充材料>\n' + ctx.worldbook + '\n</其他补充材料>');
+  }
 
   return parts.join('\n\n');
 }

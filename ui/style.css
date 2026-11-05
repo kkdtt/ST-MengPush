@@ -1659,3 +1659,79 @@ button.outline-item:last-child {
   font-size: 10.5px;
   color: var(--fg-faint);
 }
+
+/* ---------------- 上下文预览 ---------------- */
+
+.pv-box {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--fg-faint);
+  line-height: 1.7;
+}
+.pv-box:empty {
+  display: none;
+}
+
+.pv-msg {
+  margin-bottom: 8px;
+  padding: 7px 8px;
+  background: rgba(0, 0, 0, 0.14);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 6px 6px 0;
+}
+
+.pv-msg.pv-empty {
+  border-left-style: dashed;
+  border-left-color: var(--fg-faint);
+  background: transparent;
+}
+
+.pv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.pv-role {
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--fg-dim);
+}
+.pv-role.system {
+  background: rgba(127, 150, 174, 0.18);
+  color: rgba(150, 175, 200, 0.95);
+}
+.pv-role.assistant {
+  background: rgba(127, 174, 138, 0.18);
+  color: var(--ok);
+}
+.pv-role.user {
+  background: rgba(185, 168, 143, 0.18);
+  color: var(--accent);
+}
+
+.pv-idx {
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+.pv-len {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+
+.pv-body {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.75;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
