@@ -6,8 +6,8 @@
  * 是唯一能同时解决这两件事的办法。
  */
 
-import { detectTheme } from '../core/ctx.js?v=2.13.1';
-import { VERSION } from '../core/version.js?v=2.13.1';
+import { detectTheme } from '../core/ctx.js?v=2.14.0';
+import { VERSION } from '../core/version.js?v=2.14.0';
 
 const HOST_ID = 'meng-push-host';
 
@@ -132,6 +132,12 @@ const ICONS = {
   copy: 'M9 9h10v10H9zM5 15V5h10',
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
   stop: 'M7 7h10v10H7z',
+  // 标签页图标：比纯文字快一档，扫一眼就知道点哪个
+  moon: 'M20.5 13.5A8.5 8.5 0 0 1 10.5 3.5a8.5 8.5 0 1 0 10 10z',
+  branch: 'M6 4v10M6 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 10c0 5-6 3-6 8',
+  user: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20.5c0-3.6 3.4-5.5 7.5-5.5s7.5 1.9 7.5 5.5',
+  wave: 'M3 12h2l2-6 3 12 3-9 2 3h6',
+  pen: 'M4 20h4L20 8l-4-4L4 16v4zM15 5l4 4',
 };
 
 export function icon(name, size = 16) {

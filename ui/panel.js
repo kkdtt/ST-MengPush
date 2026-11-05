@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.13.1';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.14.0';
 import {
   cancel,
   clearHistory,
@@ -24,21 +24,21 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.13.1';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.13.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.13.1';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.13.1';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.13.1';
-import { testChannel } from '../core/api.js?v=2.13.1';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.13.1';
+} from '../core/engine.js?v=2.14.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.14.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.14.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.14.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.14.0';
+import { testChannel } from '../core/api.js?v=2.14.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.14.0';
 
 const TABS = [
-  { id: 'dream', label: '梦中梦' },
-  { id: 'choices', label: '走向' },
-  { id: 'intro', label: '新人' },
-  { id: 'beats', label: '节拍' },
-  { id: 'story', label: '创作' },
-  { id: 'history', label: '往轮' },
+  { id: 'dream', label: '梦中梦', icon: 'moon' },
+  { id: 'choices', label: '走向', icon: 'branch' },
+  { id: 'intro', label: '新人', icon: 'user' },
+  { id: 'beats', label: '节拍', icon: 'wave' },
+  { id: 'story', label: '创作', icon: 'pen' },
+  { id: 'history', label: '往轮', icon: 'clock' },
 ];
 
 export function createPanel(shadow) {
@@ -103,6 +103,9 @@ export function createPanel(shadow) {
 
   function applyPosition() {
     const p = getSettings().panel || {};
+    if (typeof p.w === 'number' && p.w > 0) {
+      panelEl.style.width = p.w + 'px';
+    }
     if (typeof p.x === 'number' && typeof p.y === 'number') {
       panelEl.style.left = p.x + 'px';
       panelEl.style.top = p.y + 'px';
@@ -127,6 +130,63 @@ export function createPanel(shadow) {
   makeDraggable(headEl, panelEl, {
     onEnd: ({ x, y }) => patchSettings({ panel: { ...getSettings().panel, x, y } }),
   });
+
+  /* ---------------- 调宽度 ---------------- */
+
+  /**
+   * 右下角拖宽。
+   *
+   * 342px 固定宽在「走向」页够用，但检视页要看九万字的请求、
+   * 设置页要摊渠道配置，那个宽度一行放不下几个字，滚起来很难受。
+   */
+  const resizeEl = h('div', {
+    class: 'resize-handle',
+    title: '拖动调宽度，双击恢复默认',
+  });
+
+  let rsStart = null;
+  let rsPointer = null;
+
+  resizeEl.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const r = panelEl.getBoundingClientRect();
+    rsStart = { x: e.clientX, w: r.width };
+    rsPointer = e.pointerId;
+    try {
+      resizeEl.setPointerCapture(e.pointerId);
+    } catch {
+      /* 不支持就算了 */
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  resizeEl.addEventListener('pointermove', (e) => {
+    if (!rsStart || e.pointerId !== rsPointer) return;
+    const w = Math.min(560, Math.max(300, rsStart.w + (e.clientX - rsStart.x)));
+    panelEl.style.width = Math.round(w) + 'px';
+  });
+
+  const endResize = () => {
+    if (!rsStart) return;
+    rsStart = null;
+    rsPointer = null;
+    const w = Math.round(parseFloat(panelEl.style.width) || 0);
+    if (w) {
+      patchSettings({ panel: { ...getSettings().panel, w } });
+      // 变宽后右边缘可能出界，拉回来
+      fixPanelPos();
+    }
+  };
+  resizeEl.addEventListener('pointerup', endResize);
+  resizeEl.addEventListener('pointercancel', endResize);
+
+  resizeEl.addEventListener('dblclick', () => {
+    panelEl.style.width = '';
+    patchSettings({ panel: { ...getSettings().panel, w: 0 } });
+  });
+
+  panelEl.appendChild(resizeEl);
 
   // 手机横竖屏切换、地址栏收起后，存下的坐标可能已经在屏幕外了
   const fixPanelPos = keepInViewport(panelEl);
@@ -276,7 +336,11 @@ export function createPanel(shadow) {
             render(getState());
           },
         },
-        [t.label, count ? h('span', { class: 'badge', text: String(count) }) : null],
+        [
+          icon(t.icon || 'brand', 13),
+          h('span', { class: 'tab-label', text: t.label }),
+          count ? h('span', { class: 'badge', text: String(count) }) : null,
+        ],
       );
       tabsEl.appendChild(btn);
     }
@@ -1113,6 +1177,13 @@ export function createPanel(shadow) {
       box.appendChild(buildWorldbookGroup());
       return;
     }
+
+    // 点分组标题折叠/展开。设置页七个分组一屏到底，找东西要滚半天。
+    // 只加在 box 上，box 每次重建设置页都是新的，不会重复绑。
+    box.addEventListener('click', (e) => {
+      const h4 = e.target.closest('.set-group > h4');
+      if (h4) h4.parentElement.classList.toggle('collapsed');
+    });
 
     /* --- 总开关 --- */
     const g1 = h('div', { class: 'set-group' }, [h('h4', { text: '运行' })]);
