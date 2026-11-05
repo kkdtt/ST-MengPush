@@ -1,5 +1,6 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.16.0';
-import { VERSION } from './version.js?v=2.16.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.17.0';
+import { PROMPT_FIELDS } from './prompts.js?v=2.17.0';
+import { VERSION } from './version.js?v=2.17.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -7,8 +8,6 @@ const SETTINGS_KEY = 'meng_push_settings';
 /** 默认设置。新增字段一律在这里给默认值，老配置缺字段时自动补齐。 */
 export function defaults() {
   return {
-    enabled: true,
-
     /** 每轮正文写完自动跑一次 */
     auto: true,
     /** 自动模式下延迟多少毫秒再跑（等 ST 把楼层渲染完） */
@@ -58,7 +57,7 @@ export function defaults() {
     summaryRegex: '',
 
     /** 自定义提示词：空串表示用内置默认。key 见 prompts.js 的 PROMPT_FIELDS。 */
-    prompts: { kernel: '', choices: '', danmaku: '', beats: '', outline: '', steps: '' },
+    prompts: Object.fromEntries(PROMPT_FIELDS.map((f) => [f.key, ''])),
 
     /** 上下文预算 */
     /** 最近几层以「真实对话」形式发给旁路模型，更早的用摘要 */
@@ -72,8 +71,6 @@ export function defaults() {
 
     /** 是否把世界书喂给旁路模型（强烈建议开） */
     includeWorldInfo: true,
-    /** 已废弃：扫描预算改为按 worldInfoChars 联动计算，保留字段仅为兼容旧配置 */
-    worldInfoBudget: 8192,
     /** 世界书内容截断长度 */
     worldInfoChars: 6000,
     /** 手填的背景设定（预设里的存档条目插件读不到，可以粘这里） */
@@ -81,10 +78,8 @@ export function defaults() {
 
     /** 渠道：可以为不同任务分配不同模型 */
     channels: [],
-    routing: { choices: '', danmaku: '', beats: '' },
+    routing: { choices: '', moves: '', intro: '', profile: '', beats: '' },
 
-    /** 采样 */
-    jsonMode: true,
     retries: 1,
 
     /** 面板位置与状态 */
@@ -199,13 +194,119 @@ export function maskKey(key) {
 /* ---------------- 配置备份 ---------------- */
 
 /** 导出：渠道（含密钥）、全部参数、提示词。换设备或重装时用它恢复。 */
+/**
+ * 已经删掉的字段。
+ *
+ * 老备份里可能还带着它们。导入时不清理，它们会一直躺在设置里，
+ * 下次导出又原样带出去，越传越脏。
+ */
+const LEGACY_KEYS = [
+  'enabled',
+  'worldInfoBudget',
+  'jsonMode',
+  'maxReplyTokens',
+  'dreamMaxTokens',
+  'danmakuChance',
+];
+
+/** 导出时的字段顺序：常用的在前，扫一眼能看完 */
+const EXPORT_ORDER = [
+  'channels',
+  'routing',
+  'modules',
+  'choiceCount',
+  'introCount',
+  'moveCount',
+  'historyDepth',
+  'summaryDepth',
+  'summaryChars',
+  'cardChars',
+  'worldInfoChars',
+  'tailChars',
+  'profileTemplate',
+  'worldbookChars',
+  'emptyUserPad',
+  'useToolChannel',
+  'includeWorldInfo',
+  'bodyRegex',
+  'summaryRegex',
+  'worldbook',
+  'prompts',
+  'auto',
+  'autoDelay',
+  'retries',
+  'historyLimit',
+  'theme',
+  'hotkey',
+  'background',
+  'panel',
+];
+
+/**
+ * 把一份设置洗成「当前版本该有的样子」。
+ *
+ * 导出和导入都过一遍：
+ * - 导出：老字段不带进备份文件
+ * - 导入：老备份里的死字段不在设置里复活，缺的字段补全
+ *
+ * 不这么做的话，一份从 v2.5 传下来的配置会带着几十个没人读的字段，
+ * 换台机器恢复时看着一堆陌生键，也不知道哪些还有用。
+ */
+function normalize(obj) {
+  const out = { ...obj };
+  for (const k of LEGACY_KEYS) delete out[k];
+
+  const mod = out.modules && typeof out.modules === 'object' ? out.modules : {};
+  out.modules = {
+    choices: mod.choices !== false,
+    danmaku: mod.danmaku === true,
+    moves: mod.moves === true,
+    intro: mod.intro === true,
+  };
+
+  const prompts = out.prompts && typeof out.prompts === 'object' ? out.prompts : {};
+  out.prompts = Object.fromEntries(PROMPT_FIELDS.map((f) => [f.key, String(prompts[f.key] ?? '')]));
+
+  const routing = out.routing && typeof out.routing === 'object' ? out.routing : {};
+  out.routing = Object.fromEntries(
+    ['choices', 'moves', 'intro', 'profile', 'beats'].map((k) => [k, String(routing[k] ?? '')]),
+  );
+
+  return out;
+}
+
+/** 按固定顺序重排，导出的 JSON 更好读 */
+function ordered(obj) {
+  const out = {};
+  for (const k of EXPORT_ORDER) if (obj[k] !== undefined) out[k] = obj[k];
+  for (const k of Object.keys(obj)) if (!(k in out)) out[k] = obj[k];
+  return out;
+}
+
+/**
+ * 导出：渠道（含密钥）、全部参数、提示词、导入的世界书。
+ * 换设备或重装时用它一次性恢复。
+ */
 export function exportConfig() {
+  const s = ordered(normalize(get()));
+  const wbEntries = Array.isArray(s.worldbook?.entries) ? s.worldbook.entries : [];
+
   return JSON.stringify(
     {
       _type: 'meng-push-config',
       version: VERSION,
       exportedAt: new Date().toISOString(),
-      settings: get(),
+      // 一眼能看出这份备份里有什么，不用展开几百行 JSON
+      summary: {
+        channels: Array.isArray(s.channels) ? s.channels.length : 0,
+        prompts: Object.keys(s.prompts || {}).filter((k) => s.prompts[k]).length,
+        worldbook: {
+          entries: wbEntries.length,
+          on: wbEntries.filter((e) => e && e.on).length,
+          chars: wbEntries.reduce((n, e) => n + String(e?.content || '').length, 0),
+        },
+      },
+      settings: s,
     },
     null,
     2,
@@ -226,7 +327,7 @@ export function importConfig(text) {
     throw new Error('文件里没有可用的设置对象');
   }
 
-  cache = merge(defaults(), incoming);
+  cache = normalize(merge(defaults(), incoming));
   if (!Array.isArray(cache.channels)) cache.channels = [];
   save();
   return cache;

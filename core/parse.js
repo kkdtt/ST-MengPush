@@ -9,8 +9,8 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.16.0';
-import { buildWorldbookText } from './worldbook.js?v=2.16.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.17.0';
+import { buildWorldbookText } from './worldbook.js?v=2.17.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -318,6 +318,21 @@ export function buildMaterialContext(ctx, settings) {
   }
 
   return parts.join('\n\n');
+}
+
+/**
+ * 最近 N 条 assistant 的正文，全文不截。
+ *
+ * 梦中梦用它当「梦里此刻」。之前取的是最后 3000 字，
+ * 但三千字经常只够半场戏——开头谁在场、事情怎么起的，全被切掉了。
+ * 三条完整的输出反而更能看出这一场是怎么走到现在的。
+ */
+export function buildRecentBodies(n = 3, settings) {
+  const list = getVisibleMessages().filter((m) => !m.is_user);
+  return list
+    .slice(-Math.max(1, n))
+    .map((m) => getBody(m.mes, settings))
+    .filter(Boolean);
 }
 
 /**

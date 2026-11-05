@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.16.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.16.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.16.0';
-import { attachResult } from './inspect.js?v=2.16.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.16.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.16.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.16.0';
+import { completeWithRetry } from './api.js?v=2.17.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.17.0';
+import { buildChatHistory, buildMaterialContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.17.0';
+import { attachResult } from './inspect.js?v=2.17.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.17.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.17.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.17.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -1056,6 +1056,8 @@ export async function runProfile(target) {
 
 const DREAM_KEY = 'meng_push_dream';
 const DREAM_KEEP = 12; // 只带最近 12 轮进上下文
+/** 梦中梦带最近几段正文。3 条完整输出，比截 3000 字尾部有用 */
+const DREAM_RECENT = 3;
 
 export function getDream() {
   const d = readChatMeta(DREAM_KEY);
@@ -1295,11 +1297,11 @@ export async function runDream(input) {
     // 梦中梦特有的东西全部塞进第五段插槽：人格 + 铺子里的对话 + 客人刚说。
     // 这样框架是死的，只有插槽在变，加新功能只要写插槽就行。
     let material = buildMaterialContext(ctx, settings);
-    if (ctx.lastBody) {
-      const tail = Math.max(300, settings?.tailChars ?? 3000);
-      const body = ctx.lastBody;
-      material +=
-        '\n\n【梦里此刻（正文尾部）】\n' + (body.length > tail ? '……' + body.slice(-tail) : body);
+
+    // 梦里此刻 = 最近三段正文，全文给，不截尾
+    const recent = buildRecentBodies(DREAM_RECENT, settings);
+    if (recent.length) {
+      material += '\n\n【梦里此刻（最近几段正文）】\n' + recent.join('\n\n');
     }
 
     const historyText = history

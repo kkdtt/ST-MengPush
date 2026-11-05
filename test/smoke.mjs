@@ -151,6 +151,7 @@ const {
   buildSnapshot,
   buildMaterialContext,
   buildChatHistory,
+  buildRecentBodies,
   extractSummary,
 } = await import('../core/parse.js');
 const { normalizeUrl, buildRequestBody } = await import('../core/api.js');
@@ -749,6 +750,44 @@ globalThis.__dreamCall = 0;
 await engine.runDream('');
 eq('最后一条是弥彦时空输入不重发', globalThis.__dreamCall, 0);
 eq('消息数没变', engine.getDream().messages.length, before);
+
+// 梦中梦的「梦里此刻」：最近三段正文，全文不截
+const recent = buildRecentBodies(3, s);
+ok('取到最近正文', recent.length >= 1, '实际 ' + recent.length);
+ok('正文已去标签', !recent[0].includes('<content>'), recent[0].slice(0, 40));
+ok('只取 assistant', recent.every((b) => !b.includes('我去便利店')), recent.join('|').slice(0, 60));
+eq('要一条就只给一条', buildRecentBodies(1, s).length, 1);
+
+// 配置备份：旧字段清理
+const legacy = JSON.stringify({
+  settings: {
+    enabled: false,
+    maxReplyTokens: 4000,
+    dreamMaxTokens: 12000,
+    danmakuChance: 0.4,
+    worldInfoBudget: 8192,
+    jsonMode: true,
+    modules: { choices: true, danmaku: true, beats: true },
+    prompts: { kernel: '旧内核还在' },
+    routing: { choices: 'ch_a' },
+    channels: [],
+  },
+});
+settingsMod.importConfig(legacy);
+const got = settingsMod.get();
+ok('旧字段被清掉', got.enabled === undefined && got.maxReplyTokens === undefined);
+ok('废弃字段被清掉', got.worldInfoBudget === undefined && got.jsonMode === undefined);
+eq('自定义提示词保留', got.prompts.kernel, '旧内核还在');
+eq('提示词 key 补全', Object.keys(got.prompts).length, 12);
+ok('routing 补全了新任务', 'moves' in got.routing && 'intro' in got.routing && 'profile' in got.routing);
+ok('modules 只剩四个开关', !('beats' in got.modules) && 'moves' in got.modules);
+eq('modules.choices 默认开', got.modules.choices, true);
+
+// 导出带 summary，且不含旧字段
+const dump = JSON.parse(settingsMod.exportConfig());
+ok('导出有 summary', !!dump.summary && typeof dump.summary.channels === 'number');
+ok('导出不含旧字段', !('enabled' in dump.settings));
+ok('导出字段有顺序', Object.keys(dump.settings)[0] === 'channels', Object.keys(dump.settings).slice(0, 3).join(','));
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

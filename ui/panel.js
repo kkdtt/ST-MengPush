@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.16.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.17.0';
 import {
   cancel,
   clearHistory,
@@ -26,13 +26,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.16.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.16.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.16.0';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.16.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.16.0';
-import { testChannel } from '../core/api.js?v=2.16.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.16.0';
+} from '../core/engine.js?v=2.17.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.17.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.17.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.17.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.17.0';
+import { testChannel } from '../core/api.js?v=2.17.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.17.0';
 
 /**
  * 顶层三组：自动 / 手动 / 设置。
@@ -1540,7 +1540,7 @@ export function createPanel(shadow) {
     gbak.appendChild(
       h('div', {
         class: 'prompt-hint',
-        text: '导出包含渠道（含密钥）、全部参数与提示词。换设备或重装时用它一次性恢复。',
+        text: '导出包含渠道（含密钥）、全部参数、提示词、导入的世界书。文件头有 summary，一眼能看出里面有什么。旧版本遗留的废弃字段会自动清掉。',
       }),
     );
 
