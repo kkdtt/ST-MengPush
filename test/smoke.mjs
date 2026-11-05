@@ -675,5 +675,22 @@ ok('预览有认领', pv.some((m) => m.role === 'assistant' && String(m.content)
 ok('预览有空 user', pv.some((m) => m.role === 'user' && m.content === ''));
 ok('预览最后一条是任务', pv[pv.length - 1].role === 'system');
 
+// 任务段用 <本轮任务和要求> 包住
+const boxedTask = M[M.length - 1];
+ok('任务段有 <本轮任务和要求>', String(boxedTask.content).includes('<本轮任务和要求>'));
+ok('任务段标签闭合', String(boxedTask.content).includes('</本轮任务和要求>'));
+ok('内部任务提示在标签内', (() => {
+  const c = String(boxedTask.content);
+  const open = c.indexOf('<本轮任务和要求>');
+  const close = c.indexOf('</本轮任务和要求>');
+  const hint = c.indexOf('不要接着上一句往下写');
+  return hint > open && hint < close;
+})());
+ok('任务正文在标签内', String(boxedTask.content).indexOf('下一步') < String(boxedTask.content).indexOf('</本轮任务和要求>'));
+
+// 各功能都要包（走走向以外的一条验证框架通用）
+const pvTask = pv[pv.length - 1];
+ok('预览的任务段也包了', String(pvTask.content).includes('<本轮任务和要求>'));
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

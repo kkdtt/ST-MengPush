@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.13.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.13.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.13.0';
-import { attachResult } from './inspect.js?v=2.13.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.13.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.13.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.13.0';
+import { completeWithRetry } from './api.js?v=2.13.1';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.13.1';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.13.1';
+import { attachResult } from './inspect.js?v=2.13.1';
+import { buildTool, readToolArgs } from './tools.js?v=2.13.1';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.13.1';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.13.1';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -144,13 +144,23 @@ function assembleMessages(settings, material, task) {
   // emptyUserPad，塞一个空格进去。
   msgs.push({ role: 'user', content: settings.emptyUserPad ? ' ' : '' });
 
-  // 最后一条永远是任务。末尾这句话有两个作用：
+  // 最后一条永远是任务，用 <本轮任务和要求> 包住。
+  //
+  // 包标签不只是好看：没有边界的话，这段读起来像「正文后面又跟了一段话」，
+  // 模型容易顺着往下写；有了标签，它是一块独立的任务说明，
+  // 也方便以后往里塞别的功能块（换任务就是换块内容，框架不动）。
+  //
+  // 末尾那句话有两个作用：
   //   1. 对模型：明确「按格式交结果」，别顺着对话往下写
   //   2. 对预设的「结构化传输」脚本：它见到「接着上一句往下写」会按「扮演续写」放行，
   //      不再接管我们的请求。否则上下文会被它挪进 tools，检视页只剩几条流水线外壳。
   msgs.push({
     role: 'system',
-    content: task + '\n\n（这是内部任务：不要接着上一句往下写，直接按上面的格式交出结果。）',
+    content:
+      '<本轮任务和要求>\n' +
+      task +
+      '\n\n（这是内部任务：不要接着上一句往下写，直接按上面的格式交出结果。）\n' +
+      '</本轮任务和要求>',
   });
   return msgs;
 }
@@ -166,10 +176,12 @@ export async function previewMessages() {
   const settings = getSettings();
   const ctx = await collectContext(settings);
   const material = buildMaterialContext(ctx, settings);
+  // 任务段用占位符：它随功能变（走向 / 反派 / 新人 / 大纲…），
+  // 预览时拼真的没意义，能看出「这里是那块会变的内容」就够了。
   return assembleMessages(
     settings,
     material,
-    '【本轮任务（示例）】\n出 5 条走向选项，按 <option> 格式输出。',
+    '（本轮任务的占位 —— 实际会换成走向 / 反派 / 新人 / 大纲 / 拆解 / 节拍 / 档案 对应那一段提示词和输出格式。）',
   );
 }
 
