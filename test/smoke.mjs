@@ -312,22 +312,30 @@ eq('非法 type 归到顺承', st.result.choices[2]?.type, '顺承');
 eq('风险字段保留', st.result.choices[1]?.risk, '高');
 ok('结果带 messageId', typeof st.result?.messageId === 'number' && st.result.messageId === 2);
 ok('请求体确实发出', lastRequestBody?.model === 'gemini-2.5-flash');
-ok('提示词用了内核', String(lastRequestBody?.messages?.[0]?.content).includes('弥彦'));
+/** 垫文开着时内核在第 2 条，关着在第 1 条 */
+function kernelIndex(msgs) {
+  return String(msgs?.[0]?.content || '').includes('<sample_novel>') ? 1 : 0;
+}
+const ki = kernelIndex(lastRequestBody?.messages);
+ok('提示词用了内核', String(lastRequestBody?.messages?.[ki]?.content).includes('弥彦'));
 // 五段式结构
 const M = lastRequestBody?.messages || [];
-ok('第 1 段是 system 内核', M[0]?.role === 'system' && M[0].content.includes('弥彦'));
-ok('第 2 段是 system 资料', M[1]?.role === 'system' && M[1].content.includes('旧城区常年下雨'));
+const KI = kernelIndex(M);
+ok('内核是 system', M[KI]?.role === 'system' && M[KI].content.includes('弥彦'));
+eq('认领紧跟内核', M[KI + 1]?.role, 'assistant');
+eq('资料在认领之后', M[KI + 2]?.role, 'system');
+ok('资料段含世界书', M[KI + 2]?.content.includes('旧城区常年下雨'));
 // 认领挪到聊天记录之后了
 const ackIdx = M.findIndex((m, i) => i > 0 && m.role === 'assistant' && m.content.length > 20);
 ok('认领在资料之后', ackIdx > 1, '实际位置 ' + ackIdx);
 const emptyUser = M.findIndex((m) => m.role === 'user' && m.content === '');
 ok('末尾有一条空 user', emptyUser > 0, '实际位置 ' + emptyUser);
 ok('空 user 在任务之前', emptyUser === M.length - 2, `空 user ${emptyUser} / 任务 ${M.length - 1}`);
-ok('资料段含角色卡', M[1].content.includes('林晚'));
-ok('资料段含大总结', M[1].content.includes('每周三来买同一款咖啡'));
-ok('资料段含过往事件块', M[1].content.includes('<过往事件>'));
+ok('资料段含角色卡', M[KI + 2].content.includes('林晚'));
+ok('资料段含大总结', M[KI + 2].content.includes('每周三来买同一款咖啡'));
+ok('资料段含过往事件块', M[KI + 2].content.includes('<过往事件>'));
 ok('最后一段是任务', M[M.length - 1].role === 'system' && M[M.length - 1].content.includes('下一步'));
-ok('资料段不混正文', !M[1].content.includes('冻的'));
+ok('资料段不混正文', !M[KI + 2].content.includes('冻的'));
 
 // 真实对话段：最近 N 层以 user/assistant 交替出现
 s.historyDepth = 6;
@@ -434,8 +442,10 @@ eq('上限来自渠道', lastRequestBody.max_tokens, s.channels[0].maxTokens);
 eq('触发了一次续写（共两次请求）', globalThis.__dreamCall, 2);
 // 注意：这里拿到的是「续写请求」，最后一条是续写指令，不是任务段
 const dmMsgs = lastRequestBody.messages || [];
-eq('梦中梦第 1 段是 system 内核', dmMsgs[0]?.role, 'system');
-eq('梦中梦第 2 段是 system 资料', dmMsgs[1]?.role, 'system');
+const DKI = kernelIndex(dmMsgs);
+ok('梦中梦有内核', String(dmMsgs[DKI]?.content || '').includes('弥彦'));
+eq('梦中梦认领紧跟内核', dmMsgs[DKI + 1]?.role, 'assistant');
+eq('梦中梦资料在认领之后', dmMsgs[DKI + 2]?.role, 'system');
 ok('梦中梦有认领', dmMsgs.some((m) => m.role === 'assistant' && m.content.length > 20));
 ok('梦中梦末尾有空 user', dmMsgs.some((m) => m.role === 'user' && m.content === ''));
 
@@ -538,8 +548,10 @@ try {
   /* mock 返回的不是大纲格式，解析会失败，但请求已经发出，够检查结构了 */
 }
 const om = lastRequestBody?.messages || [];
-eq('大纲第 1 段是 system', om[0]?.role, 'system');
-eq('大纲第 2 段是 system 资料', om[1]?.role, 'system');
+const OKI = kernelIndex(om);
+eq('大纲有内核', om[OKI]?.role, 'system');
+eq('大纲认领紧跟内核', om[OKI + 1]?.role, 'assistant');
+eq('大纲资料在认领之后', om[OKI + 2]?.role, 'system');
 ok('大纲有认领', om.some((m) => m.role === 'assistant' && m.content.length > 20));
 ok('大纲末尾有空 user', om.some((m) => m.role === 'user' && m.content === ''));
 ok('messages 不是嵌套数组', !Array.isArray(om[0]));

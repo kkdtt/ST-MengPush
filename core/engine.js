@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.17.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.17.0';
-import { buildChatHistory, buildMaterialContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.17.0';
-import { attachResult } from './inspect.js?v=2.17.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.17.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.17.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.17.0';
+import { completeWithRetry } from './api.js?v=2.18.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.18.0';
+import { buildChatHistory, buildMaterialContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.18.0';
+import { attachResult } from './inspect.js?v=2.18.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.18.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.18.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.18.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -114,17 +114,18 @@ export function clearHistory() {
  * 而不是「有人在给我派活」——戒心低一档，效果差不少。
  */
 function assembleMessages(settings, material, task) {
-  // 顺序有讲究：
+  // 顺序：
+  //   0 system     破限层（垫文，留空不发）
   //   1 system     内核（他是谁、守什么）
-  //   2 system     资料（世界书 / 角色卡 / 过往事件 / 全局世界书）
-  //   3 对话       最近几层，user 与 assistant 交替
-  //   4 assistant  认领（放在对话之后：先看过往，再表态）
+  //   2 assistant  认领（听完身份就表态，紧跟着内核）
+  //   3 system     资料（世界书 / 角色卡 / 过往事件 / 其他补充材料）
+  //   4 对话       最近几层，user 与 assistant 交替
   //   5 user       空消息（客人没说话，在场等着）
   //   6 system     本轮任务与输出格式
   //
-  // 认领从第 2 位挪到第 4 位，是为了让它读起来像「看完聊天记录后的表态」，
-  // 而不是「开场白」。末尾那条空 user 是关键：它让模型看到的是一个
-  // 客人坐着没吭声、系统递了张条子的场面，而不是「用户派了个活」。
+  // 认领放在内核之后、资料之前：它是对「你是谁」的回应，
+  // 中间隔着一大段资料就断了。后面聊天记录里本来就有 AI 扮演的行为，
+  // 不需要靠认领再强调一次「我在干活」。
   const msgs = [];
 
   // 第 0 条：破限层。垫文放这里，留空就不发。
@@ -134,11 +135,10 @@ function assembleMessages(settings, material, task) {
   if (pad) msgs.push({ role: 'system', content: pad });
 
   msgs.push({ role: 'system', content: getKernel(settings) });
+  msgs.push({ role: 'assistant', content: getPrompt('ack', settings) });
   msgs.push({ role: 'system', content: material });
 
   msgs.push(...buildChatHistory(settings));
-
-  msgs.push({ role: 'assistant', content: getPrompt('ack', settings) });
 
   // 空 user。有些网关对空 content 会报 400，那种情况在设置里打开
   // emptyUserPad，塞一个空格进去。
