@@ -161,6 +161,7 @@ const settingsMod = await import(`../core/settings.js?v=${V0}`);
 const engine = await import('../core/engine.js');
 const importer = await import('../core/import.js');
 const toolsMod = await import('../core/tools.js');
+const prompts = await import('../core/prompts.js');
 
 console.log('\n— 解析层 —');
 const msg = CHAT[2].mes;
@@ -530,6 +531,54 @@ eq('大纲第 3 段是 system', om[2]?.role, 'system');
 ok('messages 不是嵌套数组', !Array.isArray(om[0]));
 ok('大纲最后一段是任务', om[om.length - 1]?.role === 'system');
 ok('大纲任务段含关键词', String(om[om.length - 1]?.content || '').includes('测试关键词'));
+
+// 新人介绍：一次多个，private 可跨行
+const multi = `<intro n="1" name="周敏" tag="欠债的室友">
+relation: 林晚大学室友，两年前借了她三万，一直没还
+entry: 今晚是来还钱的，站在楼道里等了一个小时
+hook: 进门先低头看鞋，看见两双鞋就停住了
+private: 两年没碰过人。忙起来能忘，闲下来就睡不着，靠跑步把自己耗到倒头就睡。
+</intro>
+<intro n="2" name="陈柏川" tag="车行的少东家">
+relation: 跟林晚的弟弟一起玩车，见过两次
+entry: 来送修好的车，钥匙要亲手交
+hook: 说话时总把钥匙在指间转
+private: 表面玩世不恭，其实很怕被人当成废物。
+</intro>`;
+const intros = engine.parseIntros(multi);
+eq('一次解析出两个人', intros.length, 2);
+eq('第一个名字对', intros[0].name, '周敏');
+eq('第二个名字对', intros[1].name, '陈柏川');
+ok('private 跨行完整', intros[0].priv.includes('两年没碰过人') && intros[0].priv.includes('跑步'), intros[0].priv);
+eq('旧接口取第一个', engine.parseIntro(multi).name, '周敏');
+
+const introPrompt = prompts.buildIntro(s, { count: 5 });
+ok('新人提示词填了数量', introPrompt.includes('编 5 个'), introPrompt.slice(0, 40));
+ok('新人提示词含私事字段', introPrompt.includes('private:'));
+ok('新人提示词禁街坊职业', introPrompt.includes('五金店老板'));
+
+// 大纲：没选幅度就不该出现幅度那一行
+const noScale = prompts.buildOutline(s, { keyword: '测试', count: 6 });
+ok('不选幅度时没有推进幅度行', !noScale.includes('推进幅度'), noScale.slice(0, 200));
+ok('不选幅度时没有幅度规则', !noScale.includes('幅度大就允许跨时间段'));
+ok('段数照填', noScale.includes('严格输出 6 段'));
+ok('幅度占位符没残留', !/\{scale(Line|Rule)?\}/.test(noScale), noScale.match(/\{[a-zA-Z]+\}/g)?.join(','));
+
+const withScale = prompts.buildOutline(s, { keyword: '测试', scale: 'heavy', count: 3 });
+ok('选了幅度就出现那一行', withScale.includes('推进幅度') && withScale.includes('大推'));
+ok('选了幅度就有对应规则', withScale.includes('幅度大就允许跨时间段'));
+
+// 反派行动：一半往身体走
+const mv4 = prompts.buildMoves(s, { count: 4 });
+ok('4 条里 2 条带情欲', mv4.includes('至少 2 条'), mv4.slice(0, 60));
+const mv5 = prompts.buildMoves(s, { count: 5 });
+ok('5 条向上取整到 3', mv5.includes('至少 3 条'));
+
+const parsedMoves = engine.parseMoves(
+  '<move n="1" who="陈柏川" risk="中" nsfw="1">\nact: 把钥匙塞进她手心时按住不放\ngain: 换来一次单独说话\ncost: 被她甩开，丢了面子\n</move>\n<move n="2" who="周敏" risk="低" nsfw="0">\nact: 把还款日期往后拖\ngain: 多一个月\ncost: 欠人情\n</move>',
+);
+eq('第一条标了情欲', parsedMoves[0].nsfw, true);
+eq('第二条是纯利益', parsedMoves[1].nsfw, false);
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

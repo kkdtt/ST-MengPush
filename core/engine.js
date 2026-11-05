@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.10.2';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.10.2';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.10.2';
-import { attachResult } from './inspect.js?v=2.10.2';
-import { buildTool, readToolArgs } from './tools.js?v=2.10.2';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.10.2';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.10.2';
+import { completeWithRetry } from './api.js?v=2.11.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.11.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.11.0';
+import { attachResult } from './inspect.js?v=2.11.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.11.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.11.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.11.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -217,7 +217,7 @@ export async function run(opts = {}) {
     danmaku: Array.isArray(prev.danmaku) ? prev.danmaku : [],
     beats: Array.isArray(prev.beats) ? prev.beats : [],
     moves: Array.isArray(prev.moves) ? prev.moves : [],
-    intro: prev.intro || null,
+    intros: Array.isArray(prev.intros) ? prev.intros : [],
     notes: { ...(prev.notes || {}) },
     at: Date.now(),
     messageId: ctx.lastBodyId,
@@ -225,13 +225,17 @@ export async function run(opts = {}) {
 
   const tasks = opts.tasks
     ? opts.tasks.slice()
-    : ['choices', 'danmaku', 'beats', 'moves', 'intro'].filter((t) => settings.modules[t]);
+    : ['choices', 'beats', 'moves', 'intro'].filter((t) => settings.modules[t]);
 
   const ch = channelFor('choices');
   if (!channelReady(ch)) {
     emit({ status: 'error', stage: '', error: '先去设置里配一个渠道（地址 + 模型名）' });
     return;
   }
+
+  // 每个任务可以单独指定渠道；没配就跟着走向走
+  const movesCh = channelFor('moves') || ch;
+  const introCh = channelFor('intro') || ch;
 
   // 不再无条件取消上一轮：切页面、切模式、单独重跑某一项时，
   // 别的任务不该被牵连。同任务的重复触发由下面按任务名去重。
@@ -312,9 +316,9 @@ export async function run(opts = {}) {
           emit({ stage: '有人要动手了' });
           try {
             const res = await callTask(
-              ch,
+              movesCh,
               'moves',
-              assembleMessages(settings, material, buildMoves(settings, { count: 4 })),
+              assembleMessages(settings, material, buildMoves(settings, { count: settings.moveCount || 4 })),
               { signal: signalFor('moves', abort.signal), retries: 0, stream: false },
               settings,
             );
@@ -335,19 +339,21 @@ export async function run(opts = {}) {
     if (tasks.includes('intro') && !abort.signal.aborted) {
       jobs.push(
         (async () => {
-          emit({ stage: '在想一个新人' });
+          // 上限 10：再多模型就开始灌水，每个人只剩两句话
+          const count = Math.min(10, Math.max(1, Number(settings.introCount) || 3));
+          emit({ stage: `在想 ${count} 个新人` });
           try {
             const res = await callTask(
-              ch,
+              introCh || ch,
               'intro',
-              assembleMessages(settings, material, buildIntro(settings)),
+              assembleMessages(settings, material, buildIntro(settings, { count })),
               { signal: signalFor('intro', abort.signal), retries: 0, stream: false },
               settings,
             );
-            result.intro = parseIntro(res.args || res.content);
-            result.notes.intro = result.intro ? '' : 'empty';
+            result.intros = parseIntros(res.args || res.content);
+            result.notes.intro = result.intros.length ? '' : 'empty';
           } catch (e) {
-            result.intro = null;
+            result.intros = [];
             result.notes.intro = 'error:' + (e?.message || e);
             console.warn('[推进台] 新人介绍失败', e);
           } finally {
@@ -670,8 +676,6 @@ export function resetAutoGuard() {
 const STORY_KEY = 'meng_push_story';
 
 /** 推进幅度 → 默认段数。 */
-const SCALE_COUNT = { light: 3, medium: 4, heavy: 6 };
-
 export function getStory() {
   return (
     readChatMeta(STORY_KEY) || {
@@ -709,7 +713,7 @@ export function parseOutline(input) {
     const arr = Array.isArray(input.outline) ? input.outline : [];
     return arr
       .filter((o) => o && String(o.text || '').trim())
-      .slice(0, 10)
+      .slice(0, 12)
       .map((o, i) => ({
         n: Number(o.n) || i + 1,
         title: String(o.title || '').trim(),
@@ -779,6 +783,7 @@ export function parseMoves(input) {
       n: Number(attrs.n) || out.length + 1,
       who: String(attrs.who || '').trim(),
       risk: String(attrs.risk || '').trim(),
+      nsfw: attrs.nsfw === '1' || attrs.nsfw === 'true',
       act,
       gain: field('gain'),
       cost: field('cost'),
@@ -798,6 +803,7 @@ function normalizeMoves(arr) {
       n: Number(x.n) || out.length + 1,
       who: String(x.who || '').trim(),
       risk: String(x.risk || '').trim(),
+      nsfw: x.nsfw === 1 || x.nsfw === true || x.nsfw === '1',
       act,
       gain: String(x.gain || '').trim(),
       cost: String(x.cost || '').trim(),
@@ -836,8 +842,10 @@ export async function runStory(action, params = {}) {
     const material = buildMaterialContext(ctx, settings);
 
     if (action === 'outline') {
-      const scale = params.scale || 'medium';
-      const count = SCALE_COUNT[scale] || 4;
+      // 幅度默认不传——用户没选就不该在提示词里出现，否则模型会照着幅度自己定节奏
+      const scale = params.scale || '';
+      // 段数由用户直接指定，不再跟幅度绑定（之前 heavy 卡在 6 段）
+      const count = Math.min(12, Math.max(1, Number(params.count) || 4));
       const res = await callTask(
         ch,
         'outline',
@@ -851,7 +859,7 @@ export async function runStory(action, params = {}) {
       );
       const outline = parseOutline(res.args || res.content);
       if (!outline.length) throw new Error('模型没给出可用的大纲');
-      saveStory({ keyword: params.keyword || '', scale, outline, steps: [], moves: [], at: Date.now() });
+      saveStory({ keyword: params.keyword || '', scale, outlineCount: count, outline, steps: [], moves: [], at: Date.now() });
     } else {
       const story = getStory();
       if (!story.outline?.length) throw new Error('还没有大纲，先出大纲');
@@ -916,7 +924,8 @@ export async function runProfile(target) {
     return;
   }
 
-  const ch = channelFor('choices');
+  const base = channelFor('choices');
+  const ch = channelFor('profile') || base;
   if (!channelReady(ch)) {
     emit({ status: 'error', error: '先去设置里配一个渠道' });
     return;
@@ -1021,9 +1030,14 @@ export function stripMarkdown(text) {
     .trim();
 }
 
-export function parseIntro(input) {
-  if (input && typeof input === 'object') {
-    const o = input.intro || input;
+/**
+ * 解析新人介绍。
+ *
+ * 一次可以出好几个，所以返回数组。字段值可能跨行（private 尤其），
+ * 用「到下一个字段名之前」来截，不能只取一行。
+ */
+export function parseIntros(input) {
+  const pick = (o) => {
     if (!o || !o.name) return null;
     return {
       name: String(o.name || '').trim(),
@@ -1031,27 +1045,56 @@ export function parseIntro(input) {
       relation: String(o.relation || '').trim(),
       entry: String(o.entry || '').trim(),
       hook: String(o.hook || '').trim(),
+      priv: String(o.private ?? o.priv ?? '').trim(),
     };
+  };
+
+  // 工具通道：参数已经是结构化的
+  if (input && typeof input === 'object') {
+    const arr = Array.isArray(input.intros)
+      ? input.intros
+      : Array.isArray(input.intro)
+        ? input.intro
+        : Array.isArray(input)
+          ? input
+          : [input.intro || input];
+    return arr.map(pick).filter(Boolean).slice(0, 10);
   }
 
   const raw = String(input || '');
-  const m = /<intro\b([^>]*)>([\s\S]*?)<\/intro>/i.exec(raw);
-  if (!m) return null;
-  const attrs = parseAttrs(m[1]);
-  const body = m[2];
-  const field = (name) => {
-    const hit = new RegExp(name + '\\s*[:：]\\s*([^\\n]+)', 'i').exec(body);
-    return hit ? hit[1].trim() : '';
-  };
-  const name = String(attrs.name || '').trim();
-  if (!name) return null;
-  return {
-    name,
-    tag: String(attrs.tag || '').trim(),
-    relation: field('relation'),
-    entry: field('entry'),
-    hook: field('hook'),
-  };
+  const out = [];
+  const re = /<intro\b([^>]*)>([\s\S]*?)<\/intro>/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const attrs = parseAttrs(m[1]);
+    const body = m[2];
+    const name = String(attrs.name || '').trim();
+    if (!name) continue;
+
+    const field = (key) => {
+      const hit = new RegExp(
+        '^' + key + '\\s*[:：]\\s*([\\s\\S]*?)(?=\\n\\s*(?:relation|entry|hook|private)\\s*[:：]|$)',
+        'im',
+      ).exec(body);
+      return hit ? hit[1].trim() : '';
+    };
+
+    out.push({
+      name,
+      tag: String(attrs.tag || '').trim(),
+      relation: field('relation'),
+      entry: field('entry'),
+      hook: field('hook'),
+      priv: field('private'),
+    });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+/** 只要第一个。旧调用点用这个。 */
+export function parseIntro(input) {
+  return parseIntros(input)[0] || null;
 }
 
 export function parseProfile(input) {

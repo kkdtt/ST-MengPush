@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.10.2';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.11.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.10.2';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.10.2';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.10.2';
-import { parsePreset } from '../core/import.js?v=2.10.2';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.10.2';
-import { testChannel } from '../core/api.js?v=2.10.2';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.10.2';
+} from '../core/engine.js?v=2.11.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.11.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.11.0';
+import { parsePreset } from '../core/import.js?v=2.11.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.11.0';
+import { testChannel } from '../core/api.js?v=2.11.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.11.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -257,7 +257,7 @@ export function createPanel(shadow) {
         t.id === 'choices'
           ? state.result?.choices?.length || 0
           : t.id === 'intro'
-            ? state.result?.intro ? 1 : 0
+            ? state.result?.intros?.length || 0
             : t.id === 'beats'
               ? state.result?.beats?.length || 0
               : 0;
@@ -469,6 +469,7 @@ export function createPanel(shadow) {
             h('div', { class: 'move-head' }, [
               h('span', { class: 'move-n', text: String(m.n) }),
               h('span', { class: 'move-who', text: m.who || '某人' }),
+              m.nsfw ? h('span', { class: 'chip heat', text: '情欲' }) : null,
               m.risk ? h('span', { class: `chip risk-${m.risk}`, text: '暴露 ' + m.risk }) : null,
             ]),
             h('div', { class: 'move-act', text: m.act }),
@@ -492,23 +493,66 @@ export function createPanel(shadow) {
   }
 
   function renderIntro(state) {
-    const it = state.result?.intro;
+    const list = state.result?.intros || [];
     const note = state.result?.notes?.intro || '';
     const running = state.status === 'running';
+    const s = getSettings();
 
-    if (!it) {
+    // 顶部控制条常驻：数量 + 换一批，空态也能操作
+    const cntSel = h(
+      'select',
+      { class: 'story-scale', title: '一次介绍几个人（上限 10）' },
+      [1, 2, 3, 4, 5, 6, 8, 10].map((n) =>
+        h('option', {
+          value: String(n),
+          text: n + ' 人',
+          selected: (s.introCount || 3) === n,
+        }),
+      ),
+    );
+    cntSel.onchange = (e) => patchSettings({ introCount: Number(e.target.value) });
+
+    bodyEl.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        cntSel,
+        h('button', {
+          class: 'mini-btn',
+          text: list.length ? '换一批' : '抽新人',
+          disabled: running,
+          onclick: () => runOne('intro'),
+        }),
+      ]),
+    );
+
+    if (!list.length) {
       bodyEl.appendChild(
         emptyWithNote(state, note, 'intro', {
-          running: '在想一个新人……',
+          running: '在想新人……',
           empty: '模型没给出可用的人',
-          idle: '还没有新人',
+          idle: '还没有新人，点上面抽一批',
         }),
       );
       return;
     }
 
-    bodyEl.appendChild(
-      h('div', { class: 'intro-card' }, [
+    const tpl = s.profileTemplate || '1';
+
+    /** 每张卡各建一个下拉，同一个节点塞进多个父元素只会剩最后一个 */
+    const makeTplSelect = () => {
+      const sel = h(
+        'select',
+        { class: 'story-scale' },
+        [
+          { v: '1', t: '模板1 · 详细' },
+          { v: '2', t: '模板2 · 精简' },
+        ].map((o) => h('option', { value: o.v, text: o.t, selected: tpl === o.v })),
+      );
+      sel.onchange = (e) => patchSettings({ profileTemplate: e.target.value });
+      return sel;
+    };
+
+    for (const it of list) {
+      const card = h('div', { class: 'intro-card' }, [
         h('div', { class: 'intro-head' }, [
           h('span', { class: 'intro-name', text: it.name }),
           it.tag ? h('span', { class: 'intro-tag', text: it.tag }) : null,
@@ -516,39 +560,29 @@ export function createPanel(shadow) {
         it.relation ? h('div', { class: 'intro-line', text: '关系：' + it.relation }) : null,
         it.entry ? h('div', { class: 'intro-line', text: '由头：' + it.entry }) : null,
         it.hook ? h('div', { class: 'intro-line', text: '细节：' + it.hook }) : null,
-      ]),
-    );
+        it.priv
+          ? h('div', { class: 'intro-line intro-priv' }, [
+              h('span', { class: 'intro-priv-tag', text: '私事' }),
+              h('span', { text: it.priv }),
+            ])
+          : null,
+      ]);
 
-    const tpl = getSettings().profileTemplate || '1';
-    const tplSel = h(
-      'select',
-      { class: 'story-scale' },
-      [
-        { v: '1', t: '模板1 · 详细' },
-        { v: '2', t: '模板2 · 精简' },
-      ].map((o) =>
-        h('option', { value: o.v, text: o.t, selected: tpl === o.v }),
-      ),
-    );
-    tplSel.onchange = (e) => patchSettings({ profileTemplate: e.target.value });
+      const oneTpl = makeTplSelect();
+      card.appendChild(
+        h('div', { class: 'intro-actions' }, [
+          oneTpl,
+          h('button', {
+            class: 'mini-btn primary',
+            text: '写档案',
+            disabled: running,
+            onclick: () => runProfile({ ...it, template: oneTpl.value }),
+          }),
+        ]),
+      );
 
-    bodyEl.appendChild(
-      h('div', { class: 'story-ctrl' }, [
-        tplSel,
-        h('button', {
-          class: 'mini-btn primary',
-          text: state.profile ? '重新写档案' : '构建档案',
-          disabled: running,
-          onclick: () => runProfile({ ...it, template: tplSel.value }),
-        }),
-        h('button', {
-          class: 'mini-btn',
-          text: '换一个',
-          disabled: running,
-          onclick: () => runOne('intro'),
-        }),
-      ]),
-    );
+      bodyEl.appendChild(card);
+    }
 
     if (state.profile) {
       bodyEl.appendChild(h('div', { class: 'section-label', text: '档案 · 复制后粘进世界书' }));
@@ -753,21 +787,32 @@ export function createPanel(shadow) {
     },
   });
 
-  const storyScale = h('select', { class: 'story-scale' }, [
+  // 幅度默认「不指定」：选了才在提示词里出现，否则模型会自己按幅度定节奏
+  const storyScale = h('select', { class: 'story-scale', title: '推进幅度（可选）' }, [
+    h('option', { value: '', text: '幅度 · 不指定' }),
     h('option', { value: 'light', text: '轻推 · 一件事' }),
     h('option', { value: 'medium', text: '中推 · 一个小事件' }),
     h('option', { value: 'heavy', text: '大推 · 跨一个阶段' }),
   ]);
 
+  const storyCount = h('select', { class: 'story-scale', title: '大纲段数' }, [
+    3, 4, 5, 6, 8, 10, 12,
+  ].map((n) => h('option', { value: String(n), text: n + ' 段' })));
+
   const storyGo = h('button', {
     class: 'mini-btn primary',
     text: '出大纲',
-    onclick: () => runStory('outline', { keyword: draftKeyword, scale: storyScale.value }),
+    onclick: () =>
+      runStory('outline', {
+        keyword: draftKeyword,
+        scale: storyScale.value,
+        count: Number(storyCount.value) || 4,
+      }),
   });
 
   const storyInput = h('div', { class: 'story-input' }, [
     storyKw,
-    h('div', { class: 'story-ctrl' }, [storyScale, storyGo]),
+    h('div', { class: 'story-ctrl' }, [storyCount, storyScale, storyGo]),
   ]);
 
   const storyBody = h('div', { class: 'story-body' });
@@ -783,7 +828,8 @@ export function createPanel(shadow) {
       bodyEl.appendChild(storyBody);
       if (!draftKeyword && story.keyword) draftKeyword = story.keyword;
       storyKw.value = draftKeyword;
-      storyScale.value = story.scale || 'medium';
+      storyScale.value = story.scale || '';
+      if (story.outlineCount) storyCount.value = String(story.outlineCount);
     }
 
     storyGo.disabled = running;
@@ -1121,7 +1167,9 @@ export function createPanel(shadow) {
     const opts = [{ id: '', name: '（用第一个可用渠道）' }, ...s.channels.map((c) => ({ id: c.id, name: c.name || c.model }))];
     for (const [task, label] of [
       ['choices', '走向选项'],
-      ['danmaku', '弹幕'],
+      ['moves', '反派行动'],
+      ['intro', '新人介绍'],
+      ['profile', '角色档案'],
       ['beats', '节拍表'],
     ]) {
       const sel = h(

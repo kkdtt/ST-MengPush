@@ -1566,3 +1566,42 @@ button.outline-item:last-child {
     padding-bottom: 12px;
   }
 }
+
+/* ---------------- 新人卡：私事与操作行 ---------------- */
+
+.intro-priv {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: rgba(185, 130, 160, 0.09);
+  border-left: 2px solid rgba(185, 130, 160, 0.55);
+  border-radius: 0 6px 6px 0;
+  color: var(--fg-dim);
+}
+
+.intro-priv-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 15px;
+  border-radius: 4px;
+  background: rgba(185, 130, 160, 0.2);
+  color: rgba(214, 160, 190, 0.95);
+}
+
+.intro-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.intro-actions .mini-btn {
+  margin-left: auto;
+}
+
+.chip.heat {
+  background: rgba(185, 130, 160, 0.18);
+  color: rgba(214, 160, 190, 0.95);
+}

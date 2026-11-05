@@ -166,32 +166,49 @@ export const DEFAULT_DANMAKU = `读上面这一场的正文，写 3 到 5 条场
 
 /* ==================== 新人介绍 ==================== */
 
-export const DEFAULT_INTRO = `从这一场的局面出发，介绍一个还没出现过的人。
+export const DEFAULT_INTRO = `从这一场出发，编 {count} 个还没出现过的人。
 
-不是凭空造。要跟当前剧情或已经出现过的人有真实的联系——同学、同事、亲戚、旧相识、债主、邻居。
-他得有一个「为什么会出现在这里」的理由。
+【先避开这三个坑】
+编配角最容易掉进去的地方，一条都不许犯：
+- 街坊职业：五金店老板、肉铺老板、修车师傅、小卖部老板娘、快递员、房东、保安。
+  这类人只是为了让场景里多一个人，跟剧情没有真实牵连，一眼假。不许再出现。
+- 姓氏惯性：连着写郭、王、李、张、刘。{count} 个人里不许有重复姓氏，
+  也不许全用两个字的名，不许全用单名。
+- 功能人：只负责送东西、传话、撞见、被打发走。每个人都得有自己的事要办。
 
-【要求】
-1. 名字要像这个世界的人会有的名字，不要网文腔。
-2. 跟谁有关系、什么关系，一句话说清。
-3. 出现在当前场景的由头要具体：来找谁、路过、送东西、撞见什么。
-4. 给一个能让人记住的细节：一个动作、一个习惯、一件随身的东西。不要用形容词。
-5. 只给这几行，不要写完整档案。
+【往哪儿找】
+优先从这几类里挑，比街坊可信得多：
+- 跟在场某人有过具体过往的人：旧同学、前任、共过事的、借过钱的、闹翻过的、替谁背过锅的
+- 被这件事牵连进来的外人：对方的家人、单位同事、圈子里认识的人、处理这摊事的人
+- 只闻其名还没露过面的人：前面提过一嘴、一直没出场的那位
+- 跟当前场景有事务关系但不是背景板的人：来谈事的、来要账的、来送人的
+
+【每个人六个字段，都要写透】
+1. 姓名：像这个世界的人会有的名字。不要网文腔，不要叠字，不要生僻字凑意境。
+2. 定位：四到六个字，一句话说清这人是什么路数。
+3. 关系：跟在场谁、什么关系。来龙去脉要写清，不是「室友」两个字就完。
+4. 由头：此刻为什么在这里。具体到时间、地点、他本来打算做什么。
+5. 细节：一个能想象出画面的动作或习惯。不要用形容词，要能拍出来。
+6. 私事：这个人的欲望与身体。三选一，写得具体，不要写成标签：
+   - 长期禁欲或长期压抑：多久了、靠什么熬过去、什么情况下会绷不住
+   - 一件反差的事：外表和私下差在哪，别人不知道的那一面是什么
+   - 一个没跟任何人说过的癖好：是什么、怎么来的、他自己怎么看待这件事
+   这一段是给写正文的人当燃料用的，含糊到看不出东西就等于没写。
+   所有角色都是成年人。
 
 【篇幅】
-全文 700 字左右（约 500 token）。每一行都写透，不要一句话敷衍：
-- relation 要写清这层关系的来龙去脉，不是一句「室友」就完
-- entry 要写清他此刻为什么在这里，具体到时间、地点、他本来要做什么
-- hook 要具体到一个能想象出画面的动作或习惯
+每个人 350 到 500 字，六个字段都写满。宁可少写一个人，也不要每个人都敷衍两句。
 
 【输出格式】
-<intro name="姓名" tag="四到六个字的定位">
-relation: 跟谁、什么关系
-entry: 为什么会出现在这里
-hook: 一个具体的细节
+{count} 个块，n 从 1 连续递增，属性写在一行里：
+<intro n="1" name="姓名" tag="四到六个字">
+relation: ...
+entry: ...
+hook: ...
+private: ...
 </intro>
 
-不要额外文字。`;
+不要额外文字，不要代码围栏，不要在块外面写任何说明。`;
 
 /** 两套档案模板，来自用户世界书里的「角色档案模版1 / 2」。 */
 export const PROFILE_TEMPLATES = {
@@ -332,18 +349,17 @@ export const DEFAULT_OUTLINE = `承接上面正文的最后一个画面，结合
 
 【输入】
 - 核心指令：{keyword}
-- 推进幅度：{scale}
-- 段数：严格输出 {count} 段
+{scaleLine}- 段数：严格输出 {count} 段
 
 【要求】
 1. 一律用角色真名。只用当前在场的角色，不凭空造新角色，不引入天降意外。
 2. 每一段必须是一个完整事件：起因动作 → 双方互动 → 阶段性结果。不写「关系升温」「解开心结」这种空洞总结。
 3. 第 1 段必须无缝接上正文末尾的状态。后一段的起因，由前一段结尾留下的未完状态直接触发。
-4. 幅度大就允许跨时间段、换场景；幅度小就聚焦当前场景内的连续事件。
-5. 最后一段落在一个具体的动作或场景状态上。不写总结陈词，不写「故事还在继续」。
+4. 最后一段落在一个具体的动作或场景状态上。不写总结陈词，不写「故事还在继续」。
+{scaleRule}
 
 【输出格式】
-{n} 从 1 开始连续递增，title 四字以内：
+n 从 1 开始连续递增，title 四字以内：
 <outline n="1" title="四字标题">角色A与角色B之间发生的具体事件，以及这一段结束时停在什么状态</outline>
 
 不要额外文字，不要代码围栏。`;
@@ -359,7 +375,7 @@ export const DEFAULT_STEPS = `把上面的大纲均匀拆成 {count} 个连贯�
 4. 独立成句：不用「然后」「接着」「随后」「最后」这些连接词。不写「推进感情」「渲染气氛」「制造张力」这种抽象要求。
 
 【输出格式】
-{n} 从 1 开始连续递增。不要额外文字，不要代码围栏：
+n 从 1 开始连续递增。不要额外文字，不要代码围栏：
 <step n="1">写角色A与角色B在这一步里的具体动作与对话交锋，停在某个具体的截断画面或动作定格的时候</step>
 
 （示例里的「角色名」替换成当前在场的真实姓名。）`;
@@ -376,12 +392,28 @@ export const DEFAULT_MOVES = `在这个局面里，有人要动手了。
 4. 代价必须真实：可能被戳穿、可能欠人情、可能得罪人、可能失去什么。不许零成本。
 5. 只写这一件事。不写结果，不写后续，不写「这一步为后来的……埋下伏笔」。
 
+【尺度分配（这条最要紧）】
+这是日常成人向的本子，不是街坊琐事合集。鸡毛蒜皮的小算计最多占一半。
+{count} 条里至少 {hotCount} 条必须往身体和欲望的方向走，动作要落到具体接触上：
+- 借这件事靠近某个人的身体：递东西时手压上去、挡路不让她过、扶腰、替她拉衣服、按住她的手腕
+- 用把柄或人情换一次独处、一次见面、一次「今晚你得听我的」
+- 撞见不该看的场面，然后把这件事变成筹码
+- 在别人的关系里插一脚，动机里带着占有欲，不只是图钱
+- 明知道对方会拒绝，还是把话说出口，把局面推到必须回应的位置上
+剩下的一两条可以是纯利益算计，但也要有身体上的落点——凑近了说话、手指点在她肩头、把门带上。
+不许全是嘴上过招和账目往来。
+
+【每条标一个 nsfw 属性】
+nsfw="1" 表示这条带情欲或身体接触；nsfw="0" 表示纯利益算计。
+{count} 条里 nsfw="1" 的不少于 {hotCount} 条。
+
 【产出 {count} 条】
 优先从当前在场的人里挑。人不够时，可以是「不在场但与此事有关」的人，那样要写清他人在哪、怎么动的手。
+所有涉及的角色都是成年人。
 
 【输出格式】
 一条一个块，who 填角色真名，risk 是这件事被戳穿的概率（低/中/高）：
-<move n="1" who="角色名" risk="中">
+<move n="1" who="角色名" risk="中" nsfw="1">
 act: 具体做了什么，精确到动作或那句话
 gain: 谁因此得利，得的是什么利
 cost: 他自己要付出什么代价
@@ -547,10 +579,6 @@ export function buildDanmaku(settings) {
   return getPrompt('danmaku', settings);
 }
 
-export function buildIntro(settings) {
-  return getPrompt('intro', settings);
-}
-
 export function buildProfile(settings, { name = '', intro = '', template = '' } = {}) {
   const key = template || settings?.profileTemplate || '1';
   const tpl = PROFILE_TEMPLATES[key] || PROFILE_TEMPLATES['1'];
@@ -559,6 +587,10 @@ export function buildProfile(settings, { name = '', intro = '', template = '' } 
     .filter(Boolean)
     .join('\n\n');
   return extra ? extra + '\n\n---\n\n' + base : base;
+}
+
+export function buildIntro(settings, { count } = {}) {
+  return getPrompt('intro', settings).replace(/\{count\}/g, String(count ?? 3));
 }
 
 export function buildBeats(settings) {
@@ -572,19 +604,41 @@ export const SCALE_TEXT = {
   heavy: '大推：跨过一个阶段，可以换地点、换时间，但不要跳过大事件',
 };
 
-export function buildOutline(settings, { keyword, scale, count }) {
+/**
+ * 大纲。
+ *
+ * 推进幅度是可选输入：没选就把那一整行连同对应的规则一起删掉，
+ * 而不是塞个默认值进去——模型看到「中推：走完一个完整的小事件」会照着执行，
+ * 用户明明没要求，出来却是被幅度框死的四段。
+ */
+export function buildOutline(settings, { keyword, scale, count } = {}) {
+  const hasScale = !!(scale && SCALE_TEXT[scale]);
+  const scaleLine = hasScale ? `- 推进幅度：${SCALE_TEXT[scale]}\n` : '';
+  const scaleRule = hasScale
+    ? '5. 幅度大就允许跨时间段、换场景；幅度小就聚焦当前场景内的连续事件。'
+    : '';
+
   return getPrompt('outline', settings)
     .replace(/\{keyword\}/g, (keyword || '').trim() || '（客人没给具体要求，按当前局面往下排）')
-    .replace(/\{scale\}/g, SCALE_TEXT[scale] || SCALE_TEXT.medium)
-    .replace(/\{count\}/g, String(count ?? 4));
+    .replace(/\{scaleLine\}/g, scaleLine)
+    .replace(/\{scaleRule\}/g, scaleRule)
+    .replace(/\{scale\}/g, hasScale ? SCALE_TEXT[scale] : '')
+    .replace(/\{count\}/g, String(count ?? 4))
+    // 幅度为空时可能留下连续空行，收一下
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 export function buildSteps(settings, { count }) {
   return getPrompt('steps', settings).replace(/\{count\}/g, String(count ?? 5));
 }
 
-export function buildMoves(settings, { count }) {
-  return getPrompt('moves', settings).replace(/\{count\}/g, String(count ?? 4));
+export function buildMoves(settings, { count } = {}) {
+  const n = Math.max(1, Number(count) || 4);
+  // 至少一半往身体走，向上取整：4 条里 2 条，5 条里 3 条
+  const hot = Math.ceil(n / 2);
+  return getPrompt('moves', settings)
+    .replace(/\{count\}/g, String(n))
+    .replace(/\{hotCount\}/g, String(hot));
 }
 
 /** 设置页「测试渠道」用不到内核，这里单独给一条极短的。 */

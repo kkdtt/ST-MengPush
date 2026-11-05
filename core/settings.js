@@ -1,5 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.10.2';
-import { VERSION } from './version.js?v=2.10.2';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.11.0';
+import { VERSION } from './version.js?v=2.11.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -17,8 +17,8 @@ export function defaults() {
     modules: {
       /** 下面这几个开关只决定「正文写完自动跑」时跑不跑，手动点按钮不受影响 */
       choices: true,
-      /** 弹幕按概率触发，不是每轮都出 */
-      danmaku: true,
+      /** 弹幕页已换成「新人」，自动跑弹幕只会白花一次请求，默认关 */
+      danmaku: false,
       /** 节拍表只在手动点「节拍」时生成，不参与自动流程 */
       beats: false,
       /** 反派行动与走向互斥，同时开会多跑一次 */
@@ -35,6 +35,12 @@ export function defaults() {
 
     /** 角色档案用哪套模板：'1' 详细（约 2000 token）/ '2' 精简（约 1300 token） */
     profileTemplate: '1',
+
+    /** 一次介绍几个新人（上限 10） */
+    introCount: 3,
+
+    /** 一次出几条反派行动 */
+    moveCount: 4,
 
     /** 全局最大回复长度（token）。渠道里留空时用这个 */
     maxReplyTokens: 4000,
