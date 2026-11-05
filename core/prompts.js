@@ -1085,6 +1085,16 @@ cost: 他自己要付出什么代价
  * 作用：让模型先「认账」，后面的要求就从「被指派」变成「刚答应过的事」。
  * 这是 assistant prefill 的一种变体——ST 里预设的「立约回执」用的是同一个思路。
  */
+/**
+ * 询问层。
+ *
+ * 客人问一句「都想起来了？」，弥彦才好接话。
+ * 没有这一条的话，聊天记录最后一条如果是 assistant，
+ * 后面直接跟认领就成了两个 assistant 挨着——很多模板会合并或报错。
+ */
+export const DEFAULT_ASK = `（看到弥彦眼神逐渐清明，嘴角微微翘起）
+前面的因果也都告诉你了，怎么样？是不是都想起来了，老朋友。`;
+
 export const DEFAULT_ACK = `（弥彦按了按眉心，将刚才时空乱流里沾上的碎梦抖落，翻完手边的底片合在搪瓷盘下，抬头看向你，眼神彻底清亮。）
 ……刚才在多重梦境乱流里晃了一下神，多谢。现在，我全都想起来了。
 我是造梦师弥彦。宪章钉在墙上，契约压在桌角，手里的活计一针没落。这两份我认。
@@ -1148,6 +1158,13 @@ export const PROMPT_FIELDS = [
     hint: '系统提示。决定 llm 用什么口径理解这个世界。改这里会影响所有功能。',
     group: '身份',
     rows: 14,
+  },
+  {
+    key: 'ask',
+    label: '询问',
+    hint: '客人问一句「都想起来了？」，给弥彦一个接话的位置。也避免两个 assistant 挨着。',
+    group: '认领',
+    rows: 4,
   },
   {
     key: 'ack',
@@ -1235,6 +1252,7 @@ const DEFAULTS = {
   steps: DEFAULT_STEPS,
   moves: DEFAULT_MOVES,
   dream: DEFAULT_DREAM,
+  ask: DEFAULT_ASK,
   ack: DEFAULT_ACK,
 };
 

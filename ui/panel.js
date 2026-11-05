@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.20.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.20.1';
 import {
   cancel,
   clearHistory,
@@ -26,13 +26,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.20.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.20.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.20.0';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.20.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.20.0';
-import { testChannel } from '../core/api.js?v=2.20.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.20.0';
+} from '../core/engine.js?v=2.20.1';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.20.1';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.20.1';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.20.1';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.20.1';
+import { testChannel } from '../core/api.js?v=2.20.1';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.20.1';
 
 /**
  * 顶层三组：自动 / 手动 / 设置。
@@ -92,26 +92,26 @@ const PROMPT_LAYERS = [
     name: '资料',
     title: '第 3 层 · 资料 · 自动拼装',
     desc: '身份讲完，客人说「抬起头，看看对面坐着的客人」。这一层不用编辑：',
-    preview: `<世界观与人物设定>        世界书 before + 角色卡
-<世界规则与其他补充材料>   世界书 after + @深度条目
-<其他补充材料>            你导入的那本世界书（开着的条目）`,
+    preview: `<梦境资料>
+  <世界观与人物设定>        世界书 before + 角色卡
+  <世界规则与其他补充材料>   世界书 after + @深度条目
+  <其他补充材料>            你导入的那本世界书（开着的条目）
+</梦境资料>`,
   },
   {
     name: '记忆',
     title: '第 4 层 · 记忆 · 自动拼装',
     desc: '这一场演到哪了。资料是「世界什么样」，记忆是「演到哪了」：',
-    preview: `<梦境资料>
-<过往事件>
+    preview: `<过往事件>
 大总结 + 更早的剧情摘要
-（更早发生的事：当事实用，不要重演，不要改结论，摘要里不要再重复。）
 </过往事件>
 
 后面接最近 6 层的真实聊天记录（user / assistant 交替）`,
   },
   {
     name: '认领',
-    title: '第 5 层 · 认领',
-    desc: '弥彦抬起头，眼神清亮：「我全都想起来了。」然后问你要什么。',
+    title: '第 5 层 · 询问与认领',
+    desc: '客人先问一句「都想起来了？」，弥彦才好接话。这一层也隔开了聊天记录和认领——否则两个 assistant 会挨着。',
   },
   {
     name: '功能模块',

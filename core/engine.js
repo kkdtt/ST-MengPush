@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.20.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.20.0';
-import { buildChatHistory, buildMaterialContext, buildMemoryContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.20.0';
-import { attachResult } from './inspect.js?v=2.20.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.20.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.20.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.20.0';
+import { completeWithRetry } from './api.js?v=2.20.1';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.20.1';
+import { buildChatHistory, buildMaterialContext, buildMemoryContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.20.1';
+import { attachResult } from './inspect.js?v=2.20.1';
+import { buildTool, readToolArgs } from './tools.js?v=2.20.1';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.20.1';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.20.1';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -154,7 +154,13 @@ function assembleMessages(settings, material, task, ctx = {}) {
 
   msgs.push(...buildChatHistory(settings));
 
-  // 7. 认领：弥彦抬头，问你要什么
+  // 7. 询问：客人问一句「都想起来了？」
+  //    不只是为了让弥彦接话——聊天记录最后一条常常是 assistant，
+  //    没有这一条就成了两个 assistant 挨着。
+  const ask = String(getPrompt('ask', settings) || '').trim();
+  if (ask) msgs.push({ role: 'system', content: ask });
+
+  // 8. 认领：弥彦抬头，问你要什么
   msgs.push({ role: 'assistant', content: getPrompt('ack', settings) });
 
   // 最后一条永远是任务，用 <本轮任务和要求> 包住。

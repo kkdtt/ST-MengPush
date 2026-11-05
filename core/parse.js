@@ -9,8 +9,8 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.20.0';
-import { buildWorldbookText } from './worldbook.js?v=2.20.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.20.1';
+import { buildWorldbookText } from './worldbook.js?v=2.20.1';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -247,7 +247,11 @@ export function buildSystemContext(ctx, settings) {
     parts.push('<其他补充材料>\n' + ctx.worldbook + '\n</其他补充材料>');
   }
 
-  return parts.join('\n\n');
+  if (!parts.length) return '';
+
+  // <梦境资料> 是资料层的壳：从世界观一路包到其他补充材料。
+  // 记忆层不在里面——那是「演到哪了」，跟「世界什么样」是两回事。
+  return '<梦境资料>\n' + parts.join('\n\n') + '\n</梦境资料>';
 }
 
 /** 超长截断，带上提示，免得模型以为资料就这么多。 */
@@ -337,15 +341,9 @@ export function buildMemoryContext(ctx, settings) {
   }
 
   const body = cleanUserMarks(hist.join('\n\n'));
+  if (!body) return '';
 
-  const parts = ['<梦境资料>', '<过往事件>'];
-  if (body) {
-    parts.push(body);
-    parts.push('（更早发生的事：当事实用，不要重演，不要改结论，摘要里不要再重复。）');
-  }
-  parts.push('</过往事件>');
-
-  return parts.join('\n');
+  return '<过往事件>\n' + body + '\n</过往事件>';
 }
 
 /**

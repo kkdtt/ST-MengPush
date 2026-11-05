@@ -1,6 +1,6 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.20.0';
-import { PROMPT_FIELDS } from './prompts.js?v=2.20.0';
-import { VERSION } from './version.js?v=2.20.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.20.1';
+import { PROMPT_FIELDS } from './prompts.js?v=2.20.1';
+import { VERSION } from './version.js?v=2.20.1';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
