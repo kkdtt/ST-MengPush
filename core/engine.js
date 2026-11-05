@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.15.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.15.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.15.0';
-import { attachResult } from './inspect.js?v=2.15.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.15.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.15.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.15.0';
+import { completeWithRetry } from './api.js?v=2.15.1';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.15.1';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.15.1';
+import { attachResult } from './inspect.js?v=2.15.1';
+import { buildTool, readToolArgs } from './tools.js?v=2.15.1';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.15.1';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.15.1';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -207,34 +207,67 @@ async function callTask(ch, task, messages, opts, settings) {
 
   if (!tool) {
     const res = await completeWithRetry(ch, messages, { ...baseOpts, stream });
-    attachResult({ hasTool: false, finishReason: res.finishReason, chars: res.content?.length });
+    attachResult({ reason: 'text', finishReason: res.finishReason, chars: res.content?.length });
     return { ...res, args: null };
   }
 
   try {
-    const res = await completeWithRetry(ch, messages, {
+    const res = await completeWithRetry(ch, withToolHint(messages), {
       ...baseOpts,
       stream,
       tools: [tool],
-      toolChoice: 'auto',
+      // 必须是 required，不能是 auto。
+      // auto 下模型看到任务段里「直接以 <option> 开头」就照做了，压根不调工具——
+      // 这就是之前同一批请求里有的 ✓ 有的 ✗ 的原因，纯粹看模型那一轮的心情。
+      toolChoice: 'required',
     });
+
     const args = readToolArgs({ tool_calls: res.toolCalls });
-    attachResult({
-      hasTool: !!args,
-      toolName: res.toolCalls?.[0]?.function?.name || '',
-      finishReason: res.finishReason,
-      chars: res.content?.length,
-    });
-    if (args) return { ...res, args };
-    // 模型没调工具，但给了正文——按文本通道解析
-    if (res.content && res.content.trim()) return { ...res, args: null };
+    if (args) {
+      attachResult({
+        reason: 'tool',
+        toolName: res.toolCalls?.[0]?.function?.name || '',
+        finishReason: res.finishReason,
+        chars: 0,
+      });
+      return { ...res, args };
+    }
+
+    // required 下还没调工具，说明这个模型不配合，但它给了正文——按文本解析
+    if (res.content && res.content.trim()) {
+      attachResult({ reason: 'notool', finishReason: res.finishReason, chars: res.content.length });
+      return { ...res, args: null };
+    }
+
     throw new Error('工具通道返回空');
   } catch (e) {
     console.warn('[推进台] 工具通道失败，降级文本', e);
     const res = await completeWithRetry(ch, messages, { ...baseOpts, stream });
-    attachResult({ hasTool: false, finishReason: 'degraded', chars: res.content?.length });
+    attachResult({ reason: 'degraded', finishReason: 'degraded', chars: res.content?.length });
     return { ...res, args: null, degraded: true };
   }
+}
+
+/**
+ * 工具通道专用：在任务段末尾补一句「用工具交」。
+ *
+ * 提示词是给文本通道写的，里面写着「直接以 <option> 开头，不要代码块」——
+ * 模型看到这句就老老实实写标签，不会去调工具。这句只在走工具通道时加，
+ * 不动用户自己写的提示词。
+ */
+function withToolHint(messages) {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'system') return messages;
+
+  const hint = '（用 submit 工具提交结果，不要把内容写在正文里。）';
+  const body = String(last.content || '');
+  if (body.includes(hint)) return messages;
+
+  const next = /<\/本轮任务和要求>\s*$/.test(body)
+    ? body.replace(/<\/本轮任务和要求>\s*$/, `${hint}\n</本轮任务和要求>`)
+    : `${body}\n${hint}`;
+
+  return [...messages.slice(0, -1), { ...last, content: next }];
 }
 
 /* ---------------- 主流程 ---------------- */

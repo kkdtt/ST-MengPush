@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.15.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.15.1';
 import {
   cancel,
   clearHistory,
@@ -26,13 +26,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.15.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.15.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.15.0';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.15.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.15.0';
-import { testChannel } from '../core/api.js?v=2.15.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.15.0';
+} from '../core/engine.js?v=2.15.1';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.15.1';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.15.1';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.15.1';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.15.1';
+import { testChannel } from '../core/api.js?v=2.15.1';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.15.1';
 
 /**
  * 顶层三组：自动 / 手动 / 设置。
@@ -1579,6 +1579,18 @@ export function createPanel(shadow) {
     box.appendChild(g7);
   }
 
+  /** 这一轮到底走没走工具通道，四种情况分开显示 */
+  function resultTag(r) {
+    const map = {
+      tool: { cls: 'toolok', text: `✓ ${r.toolName || '工具'}` },
+      notool: { cls: 'toolhalf', text: '△ 没调工具' },
+      degraded: { cls: 'toolno', text: '✗ 降级文本' },
+      text: { cls: 'toolno', text: '— 文本' },
+    };
+    const it = map[r.reason] || map.text;
+    return h('span', { class: 'rec-tag ' + it.cls, text: it.text });
+  }
+
   /** tool_choice 可能是字符串也可能是 {type,function:{name}} 对象 */
   function fmtChoice(v) {
     if (v === null || v === undefined || v === '') return '-';
@@ -1815,12 +1827,7 @@ export function createPanel(shadow) {
       h('summary', { class: 'rec-sum' }, [
         h('span', { class: 'rec-tag ' + (r.self ? 'self' : 'main'), text: r.self ? '推进台' : '主对话' }),
         r.hijacked ? h('span', { class: 'rec-tag hijack', text: '被脚本接管' }) : null,
-        r.result
-          ? h('span', {
-              class: 'rec-tag ' + (r.result.hasTool ? 'toolok' : 'toolno'),
-              text: r.result.hasTool ? `✓ ${r.result.toolName || '工具'}` : '✗ 文本',
-            })
-          : null,
+        r.result ? resultTag(r.result) : null,
         h('span', { class: 'rec-time', text: time }),
         h('span', {
           class: 'rec-meta',

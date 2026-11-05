@@ -51,7 +51,10 @@ export function attachResult(info) {
   const r = records[0];
   if (!r) return;
   r.result = {
-    hasTool: !!info?.hasTool,
+    // tool = 模型调了工具；notool = 工具通道开着但它写了正文；
+    // degraded = 工具通道请求失败退回文本；text = 本来就走文本通道
+    reason: String(info?.reason || (info?.hasTool ? 'tool' : 'text')),
+    hasTool: !!info?.hasTool || info?.reason === 'tool',
     toolName: String(info?.toolName || ''),
     finishReason: String(info?.finishReason || ''),
     chars: Number(info?.chars || 0),

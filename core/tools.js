@@ -112,6 +112,67 @@ const SPECS = {
     required: ['steps'],
   },
 
+  moves: {
+    desc: '提交反派行动。谁在什么时候做了什么对别人不利的事，代价是什么。',
+    props: {
+      moves: {
+        type: 'array',
+        description: '2 到 6 条，其中至少一半带情欲或身体接触',
+        items: {
+          type: 'object',
+          properties: {
+            n: { type: 'integer', description: '第几条' },
+            who: { type: 'string', description: '动手的人，写角色真名' },
+            act: { type: 'string', description: '具体做了什么，精确到动作或那句话' },
+            gain: { type: 'string', description: '谁因此得利，得的是什么利' },
+            cost: { type: 'string', description: '他自己要付出什么代价，不许零成本' },
+            risk: { type: 'string', enum: ['低', '中', '高'], description: '被戳穿的概率' },
+            nsfw: { type: 'boolean', description: '这条是否带情欲或身体接触' },
+          },
+          required: ['who', 'act', 'gain', 'cost'],
+        },
+      },
+    },
+    required: ['moves'],
+  },
+
+  intro: {
+    desc: '提交新人介绍。一次可以给好几个，每个都要有具体的私事。',
+    props: {
+      intros: {
+        type: 'array',
+        description: '1 到 10 个新人，姓氏不许重复',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: '姓名，像这个世界的人会有的名字' },
+            tag: { type: 'string', description: '四到六个字的定位' },
+            relation: { type: 'string', description: '跟在场谁、什么关系，来龙去脉写清' },
+            entry: { type: 'string', description: '此刻为什么在这里，具体到时间地点' },
+            hook: { type: 'string', description: '一个能想象出画面的动作或习惯' },
+            private: {
+              type: 'string',
+              description: '欲望与身体：长期禁欲 / 一件反差的事 / 一个没跟人说过的癖好，三选一，要具体',
+            },
+          },
+          required: ['name', 'tag', 'relation', 'entry', 'hook', 'private'],
+        },
+      },
+    },
+    required: ['intros'],
+  },
+
+  profile: {
+    desc: '提交完整的角色档案。按模板逐项填写，纯文本，不用 markdown。',
+    props: {
+      profile: {
+        type: 'string',
+        description: '完整档案正文，按模板的编号逐项写，不用星号井号等 markdown 标记',
+      },
+    },
+    required: ['profile'],
+  },
+
   dream: {
     desc: '提交你对客人说的话。say 必填；想顺手递走向或弹幕就填对应字段，不递就留空。',
     props: {

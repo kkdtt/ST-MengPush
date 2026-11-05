@@ -469,6 +469,11 @@ ok('工具只含 choices 字段', !!toolDef.function.parameters.properties.choic
 ok('工具不含别的任务字段', !toolDef.function.parameters.properties.say);
 eq('未知任务返回 null', toolsMod.buildTool('不存在'), null);
 
+// 每个任务都必须有工具定义——少一个，那个任务就会悄悄退回文本通道
+for (const t of ['choices', 'moves', 'intro', 'profile', 'beats', 'outline', 'steps', 'dream', 'danmaku']) {
+  ok(`工具覆盖 ${t}`, !!toolsMod.buildTool(t));
+}
+
 eq('完整 JSON 正常解析', toolsMod.salvageJson('{"a":1}').a, 1);
 eq('半截数组能救', toolsMod.salvageJson('{"choices":[{"type":"顺承","text":"递咖啡"}').choices.length, 1);
 eq('半截字符串能救', toolsMod.salvageJson('{"say":"线还热着').say, '线还热着');

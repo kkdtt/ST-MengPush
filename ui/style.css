@@ -2022,3 +2022,8 @@ button.outline-item:last-child {
   gap: 6px;
   margin-top: 6px;
 }
+
+.rec-tag.toolhalf {
+  background: rgba(214, 169, 95, 0.16);
+  color: var(--warn);
+}
