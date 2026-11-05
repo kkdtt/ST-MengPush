@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.15.1';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.15.1';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.15.1';
-import { attachResult } from './inspect.js?v=2.15.1';
-import { buildTool, readToolArgs } from './tools.js?v=2.15.1';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.15.1';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.15.1';
+import { completeWithRetry } from './api.js?v=2.16.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.16.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.16.0';
+import { attachResult } from './inspect.js?v=2.16.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.16.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.16.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.16.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -1252,9 +1252,7 @@ export function parseDream(input) {
  * 人格提示词 + 世界规则 + 当前局面 + 最近几轮对话，一次性发过去。
  */
 export async function runDream(input) {
-  const text = String(input || '').trim();
-  if (!text) return;
-
+  const raw = String(input || '').trim();
   const settings = getSettings();
 
   const ch = channelFor('choices');
@@ -1264,10 +1262,26 @@ export async function runDream(input) {
   }
 
   const dream = getDream();
-  const history = dream.messages.slice(-DREAM_KEEP);
+  const lastMsg = dream.messages[dream.messages.length - 1];
 
-  // 先把客人这句挂上去，界面上立刻能看到
-  const pending = { ...dream, messages: [...dream.messages, { role: 'user', text, at: Date.now() }] };
+  // 输入框空着 + 最后一条是客人说的 = 重发上一条。
+  //
+  // 这种情况通常是：弥彦答得不对味，把那条删了，想让它重新说一遍。
+  // 此时不该再往历史里塞一条空消息——直接用现有的对话重跑，
+  // 请求体跟删掉那条之前完全一样，模型看到的上下文也没变。
+  const resend = !raw && lastMsg?.role === 'user';
+  const text = resend ? String(lastMsg.text || '').trim() : raw;
+  if (!text) return;
+
+  // 重发时历史要掐掉最后那条——它已经作为「客人刚说」单独给了一遍，
+  // 留在 history 里会变成同一句话说两次。
+  const source = resend ? dream.messages.slice(0, -1) : dream.messages;
+  const history = source.slice(-DREAM_KEEP);
+
+  // 先把客人这句挂上去，界面上立刻能看到（重发时不用再挂）
+  const pending = resend
+    ? { ...dream }
+    : { ...dream, messages: [...dream.messages, { role: 'user', text, at: Date.now() }] };
   emit({ dream: pending, status: 'running', stage: '弥彦在想', error: '' });
 
   currentAbort?.abort();

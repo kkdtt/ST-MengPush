@@ -723,5 +723,32 @@ eq('越界 index 不报错', (() => {
   try { engine.updateDreamMessage(99, 'x'); return 'ok'; } catch { return 'boom'; }
 })(), 'ok');
 
+// 重发：输入框空 + 最后一条是客人说的
+engine.saveDream({
+  messages: [
+    { role: 'user', text: '第一句' },
+    { role: 'assistant', text: '第一次答的' },
+    { role: 'user', text: '这句要重来' },
+  ],
+});
+globalThis.__dreamCall = 0;
+await engine.runDream('');
+// 重发后应该只有「原 3 条 + 1 条新回复」，而不是再加一条空的 user
+eq('重发只多一条回复', engine.getDream().messages.length, 4, JSON.stringify(engine.getDream().messages.map(m=>m.role+':'+m.text.slice(0,6))));
+
+const resendBody = (lastRequestBody.messages || []).map((m) => String(m.content || '')).join('\n');
+ok('重发用了上一条的内容', resendBody.includes('这句要重来'));
+const dupCount = resendBody.split('这句要重来').length - 1;
+ok('重发不会把同句话给两遍', dupCount === 1, '出现 ' + dupCount + ' 次：' + (lastRequestBody.messages || []).filter((m) => String(m.content).includes('这句要重来')).map((m) => m.role + '/' + String(m.content).length).join(', '));
+ok('重发仍带历史', resendBody.includes('第一句') || resendBody.includes('第一次答的'));
+
+// 空输入 + 最后一条是 assistant → 不该发
+engine.saveDream({ messages: [{ role: 'user', text: '问' }, { role: 'assistant', text: '答' }] });
+const before = engine.getDream().messages.length;
+globalThis.__dreamCall = 0;
+await engine.runDream('');
+eq('最后一条是弥彦时空输入不重发', globalThis.__dreamCall, 0);
+eq('消息数没变', engine.getDream().messages.length, before);
+
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

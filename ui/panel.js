@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.15.1';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.16.0';
 import {
   cancel,
   clearHistory,
@@ -26,13 +26,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.15.1';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.15.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.15.1';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.15.1';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.15.1';
-import { testChannel } from '../core/api.js?v=2.15.1';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.15.1';
+} from '../core/engine.js?v=2.16.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.16.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.16.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.16.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.16.0';
+import { testChannel } from '../core/api.js?v=2.16.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.16.0';
 
 /**
  * 顶层三组：自动 / 手动 / 设置。
@@ -781,6 +781,7 @@ export function createPanel(shadow) {
     class: 'dream-input',
     rows: '2',
     placeholder: '跟弥彦说点什么……（Enter 发送，Shift+Enter 换行）',
+    oninput: () => syncSendBtn(),
   });
   const dreamSend = h('button', {
     class: 'mini-btn primary',
@@ -809,10 +810,29 @@ export function createPanel(shadow) {
     }
   });
 
+  /** 上一条是不是客人说的。是的话，输入框空着也能发（等于重发）。 */
+  function lastIsUser() {
+    const list = (getState().dream || getDream()).messages || [];
+    return list[list.length - 1]?.role === 'user';
+  }
+
+  /** 按钮状态跟着输入框和最后一条走 */
+  function syncSendBtn() {
+    const running = getState().status === 'running';
+    const hasText = !!dreamInput.value.trim();
+    const resend = !hasText && lastIsUser();
+
+    dreamSend.disabled = running || (!hasText && !resend);
+    dreamSend.textContent = running ? '…' : resend ? '重说' : '说';
+    dreamSend.title = resend ? '输入框空着，点了按上一条重发' : '';
+  }
+
   function sendDream() {
     const t = dreamInput.value.trim();
-    if (!t) return;
+    if (!t && !lastIsUser()) return;
     dreamInput.value = '';
+    syncSendBtn();
+    // 空字符串会让 runDream 走「重发」分支
     void runDream(t);
   }
 
@@ -824,8 +844,7 @@ export function createPanel(shadow) {
 
     const d = state.dream || getDream();
     const running = state.status === 'running';
-    dreamSend.disabled = running;
-    dreamSend.textContent = running ? '…' : '说';
+    syncSendBtn();
 
     clear(dreamLog);
 
@@ -858,6 +877,19 @@ export function createPanel(shadow) {
         h('div', { class: 'dream-head' }, [
           h('span', { class: 'dream-who', text: isUser ? '你' : '弥彦' }),
           h('div', { class: 'dream-actions' }, [
+            h('button', {
+              class: 'dream-act',
+              text: '复制',
+              title: '复制这一条',
+              onclick: async () => {
+                try {
+                  await navigator.clipboard.writeText(m.text);
+                  setStatus('已复制');
+                } catch {
+                  setStatus('复制失败，手动选中吧', 'err');
+                }
+              },
+            }),
             h('button', {
               class: 'dream-act',
               text: '改',
