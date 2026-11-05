@@ -1898,3 +1898,127 @@ button.outline-item:last-child {
   opacity: 1;
   border-color: var(--accent);
 }
+
+/* ---------------- 组内子标签 ---------------- */
+
+.subtabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 6px 9px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.subtabs::-webkit-scrollbar {
+  display: none;
+}
+.subtabs[hidden] {
+  display: none;
+}
+
+.subtab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  color: var(--fg-faint);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.subtab:hover {
+  color: var(--fg-dim);
+  background: rgba(185, 168, 143, 0.06);
+}
+.subtab.on {
+  color: var(--accent-2);
+  background: rgba(185, 168, 143, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: rgba(185, 168, 143, 0.28);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.subtab svg {
+  flex: 0 0 auto;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.subtab.on svg {
+  opacity: 1;
+}
+.subtab .badge {
+  display: inline-block;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+  border-radius: 8px;
+  background: var(--bg-3);
+  color: var(--fg-faint);
+}
+
+/* ---------------- 梦中梦：单条编辑 ---------------- */
+
+.dream-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.dream-head .dream-who {
+  margin-bottom: 0;
+}
+
+.dream-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  /* 手机没有 hover，留一点常显，别让人以为不能改 */
+  opacity: 0.32;
+  transition: opacity 0.15s;
+}
+.dream-msg:hover .dream-actions {
+  opacity: 1;
+}
+
+.dream-act {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--fg-faint);
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.dream-act:hover {
+  color: var(--accent);
+  background: var(--bg-3);
+}
+
+.dream-edit {
+  width: 100%;
+  min-height: 72px;
+  padding: 7px 9px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--fg);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+}
+.dream-edit:focus {
+  border-color: var(--accent);
+}
+
+.dream-edit-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}

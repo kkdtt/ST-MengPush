@@ -116,27 +116,41 @@ const clean = (html) =>
     .replace(/<div class="resize-handle"[^>]*><\/div>/g, '<div class="resize-handle"></div>');
 
 const shots = [];
-shots.push({ title: '走向', html: clean(root.querySelector('.panel').outerHTML) });
+const snap = (title) => shots.push({ title, html: clean(root.querySelector('.panel').outerHTML) });
 
-// 切到「新人」页
-[...root.querySelectorAll('.tab')].find((t) => t.textContent.includes('新人'))?.click();
-await new Promise((r) => setTimeout(r, 200));
-shots.push({ title: '新人', html: clean(root.querySelector('.panel').outerHTML) });
+/** 切顶层组 */
+const toGroup = async (label) => {
+  [...root.querySelectorAll('.tab')].find((t) => t.textContent.includes(label))?.click();
+  await new Promise((r) => setTimeout(r, 180));
+};
+/** 切组内子项 */
+const toSub = async (label) => {
+  [...root.querySelectorAll('.subtab')].find((t) => t.textContent.includes(label))?.click();
+  await new Promise((r) => setTimeout(r, 180));
+};
 
-// 设置页
-[...root.querySelectorAll('.icon-btn')][1]?.click();
-await new Promise((r) => setTimeout(r, 200));
-shots.push({ title: '设置', html: clean(root.querySelector('.panel').outerHTML) });
+snap('自动 · 走向');
 
-// 提示词页
+await toSub('新人');
+snap('自动 · 新人');
+
+await toGroup('手动');
+await toSub('梦中梦');
+snap('手动 · 梦中梦');
+
+await toSub('创作');
+snap('手动 · 创作');
+
+await toGroup('设置');
+snap('设置 · 基础');
+
 [...root.querySelectorAll('.seg button')][1]?.click();
 await new Promise((r) => setTimeout(r, 200));
-shots.push({ title: '提示词', html: clean(root.querySelector('.panel').outerHTML) });
+snap('设置 · 提示词');
 
-// 检视页
 [...root.querySelectorAll('.seg button')][2]?.click();
 await new Promise((r) => setTimeout(r, 300));
-shots.push({ title: '检视', html: clean(root.querySelector('.panel').outerHTML) });
+snap('设置 · 检视');
 
 let css = fs.readFileSync('D:/workpage/workbuddy/2026-11-04-14-15-38/造梦师-推进台/ui/style.css', 'utf8');
 css = css

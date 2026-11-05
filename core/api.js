@@ -15,8 +15,8 @@
  * 声明自己不用工具，是这类拦截器通用的放行信号。
  */
 
-import { getCtx } from './ctx.js?v=2.14.0';
-import { markSelf } from './inspect.js?v=2.14.0';
+import { getCtx } from './ctx.js?v=2.15.0';
+import { markSelf } from './inspect.js?v=2.15.0';
 
 export const GENERATE_URL = '/api/backends/chat-completions/generate';
 
@@ -50,13 +50,18 @@ export function buildRequestBody(channel, messages, stream, opts = {}) {
     model: channel.model,
     messages,
     temperature: typeof channel.temperature === 'number' ? channel.temperature : 0.95,
-    max_tokens: channel.maxTokens || 900,
     stream: !!stream,
     presence_penalty: 0,
     frequency_penalty: 0,
     // 默认声明「不用工具」，这是给第三方 fetch 拦截器的放行信号
     tool_choice: 'none',
   };
+
+  // max_tokens 只在渠道里填了才发。没填就让上游用它的默认，
+  // 插件不替用户拍一个数字——之前那个 900 就是梦中梦老被截断的元凶。
+  if (Number(channel.maxTokens) > 0) {
+    body.max_tokens = Math.round(Number(channel.maxTokens));
+  }
 
   // top_p 只在用户明确设了才发，避免某些渠道不认这个参数
   if (typeof channel.topP === 'number' && channel.topP > 0 && channel.topP < 1) {

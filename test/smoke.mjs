@@ -429,7 +429,7 @@ ok('parseDream 里已清理', !engine.parseDream('<say>**坐。**线还热着。
 // 梦中梦用更大的输出上限，并在被截断时自动续写
 globalThis.__dreamCall = 0;
 await engine.runDream('林晚现在在想什么');
-eq('梦中梦上限覆盖渠道默认', lastRequestBody.max_tokens, s.dreamMaxTokens || 12000);
+eq('上限来自渠道', lastRequestBody.max_tokens, s.channels[0].maxTokens);
 eq('触发了一次续写（共两次请求）', globalThis.__dreamCall, 2);
 // 注意：这里拿到的是「续写请求」，最后一条是续写指令，不是任务段
 const dmMsgs = lastRequestBody.messages || [];
@@ -504,7 +504,7 @@ ok('导出带时间', typeof exported.exportedAt === 'string');
 
 settingsMod.importConfig(JSON.stringify({ settings: { choiceCount: 9 } }));
 eq('导入后自定义值生效', settingsMod.get().choiceCount, 9);
-ok('导入后默认值补齐', typeof settingsMod.get().dreamMaxTokens === 'number');
+ok('导入后默认值补齐', typeof settingsMod.get().maxReplyTokens === 'undefined' && typeof settingsMod.get().choiceCount === 'number');
 eq('导入非法内容会报错', (() => { try { settingsMod.importConfig('不是json'); return 'no'; } catch { return 'ok'; } })(), 'ok');
 
 // 响应结果记录
@@ -519,9 +519,9 @@ ok('结果被记录', withResult.result?.hasTool === true);
 eq('工具名被记录', withResult.result?.toolName, 'submit');
 eq('finish_reason 被记录', withResult.result?.finishReason, 'tool_calls');
 
-// 全局回复上限
-ok('全局回复上限存在', typeof settingsMod.get().maxReplyTokens === 'number');
-ok('全局上限大于零', settingsMod.get().maxReplyTokens > 0);
+// 上限只看渠道：渠道没填就不发 max_tokens
+const noCap = buildRequestBody({ ...ch, maxTokens: 0 }, [], false);
+ok('渠道没填上限时不发 max_tokens', !('max_tokens' in noCap), JSON.stringify(Object.keys(noCap)));
 
 // 创作页也要走统一框架
 // 前面的导入导出测试把渠道清空了，先补回来
@@ -691,6 +691,32 @@ ok('任务正文在标签内', String(boxedTask.content).indexOf('下一步') < 
 // 各功能都要包（走走向以外的一条验证框架通用）
 const pvTask = pv[pv.length - 1];
 ok('预览的任务段也包了', String(pvTask.content).includes('<本轮任务和要求>'));
+
+// 梦中梦：单条编辑与删除
+engine.saveDream({
+  messages: [
+    { role: 'user', text: '第一条' },
+    { role: 'assistant', text: '第二条' },
+    { role: 'user', text: '第三条' },
+  ],
+});
+engine.updateDreamMessage(1, '改过的第二条');
+eq('编辑生效', engine.getDream().messages[1].text, '改过的第二条');
+eq('编辑不动前一条', engine.getDream().messages[0].text, '第一条');
+eq('编辑不动后一条', engine.getDream().messages[2].text, '第三条');
+ok('编辑打了时间戳', typeof engine.getDream().messages[1].editedAt === 'number');
+
+engine.deleteDreamMessage(0);
+eq('删完剩两条', engine.getDream().messages.length, 2);
+eq('删的是第一条', engine.getDream().messages[0].text, '改过的第二条');
+
+eq('空文本不覆盖', (() => {
+  engine.updateDreamMessage(0, '   ');
+  return engine.getDream().messages[0].text;
+})(), '改过的第二条');
+eq('越界 index 不报错', (() => {
+  try { engine.updateDreamMessage(99, 'x'); return 'ok'; } catch { return 'boom'; }
+})(), 'ok');
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

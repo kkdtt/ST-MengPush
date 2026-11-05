@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.14.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.14.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.14.0';
-import { attachResult } from './inspect.js?v=2.14.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.14.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.14.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.14.0';
+import { completeWithRetry } from './api.js?v=2.15.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.15.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.15.0';
+import { attachResult } from './inspect.js?v=2.15.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.15.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.15.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.15.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -198,8 +198,12 @@ async function callTask(ch, task, messages, opts, settings) {
   const tool = settings.useToolChannel && !stream ? buildTool(task) : null;
 
   // 优先级：调用方指定（梦中梦）> 渠道设置 > 全局
-  const replyCap = opts.maxTokens || ch.maxTokens || settings.maxReplyTokens || 4000;
-  const baseOpts = { ...opts, maxTokens: replyCap };
+  // 上限一律看渠道：渠道里填了就发，没填就不发，让上游用自己的默认。
+  // 插件不再自己拍一个数字，省得两边对不上还查不出来。
+  const replyCap = Number(ch.maxTokens) > 0 ? Number(ch.maxTokens) : 0;
+  const baseOpts = { ...opts };
+  if (replyCap > 0) baseOpts.maxTokens = replyCap;
+  else delete baseOpts.maxTokens;
 
   if (!tool) {
     const res = await completeWithRetry(ch, messages, { ...baseOpts, stream });
@@ -255,11 +259,6 @@ function signalFor(task, parentSignal) {
  */
 export async function run(opts = {}) {
   const settings = getSettings();
-  if (!settings.enabled) {
-    emit({ status: 'idle', stage: '', error: '推进台已关闭' });
-    return;
-  }
-
   const ctx = await collectContext(settings);
 
   // 只重刷某一项时，其余项保留上一次的结果，不要清空
@@ -701,7 +700,7 @@ let lastAutoId = -1;
  */
 export function onGenerationEnded(messageId) {
   const settings = getSettings();
-  if (!settings.enabled || !settings.auto) return;
+  if (!settings.auto) return;
 
   const id = typeof messageId === 'number' ? messageId : -1;
   if (id < 0 || id === lastAutoId) return;
@@ -872,10 +871,6 @@ function normalizeMoves(arr) {
  */
 export async function runStory(action, params = {}) {
   const settings = getSettings();
-  if (!settings.enabled) {
-    emit({ status: 'error', error: '推进台已关闭' });
-    return;
-  }
 
   const ch = channelFor('choices');
   if (!channelReady(ch)) {
@@ -971,10 +966,6 @@ export async function runStory(action, params = {}) {
  */
 export async function runProfile(target) {
   const settings = getSettings();
-  if (!settings.enabled) {
-    emit({ status: 'error', error: '推进台已关闭' });
-    return;
-  }
 
   const base = channelFor('choices');
   const ch = channelFor('profile') || base;
@@ -1049,6 +1040,31 @@ export function loadDream() {
   const d = getDream();
   emit({ dream: d });
   return d;
+}
+
+/**
+ * 改某一条。
+ *
+ * 只动这一条，前后都保留——改完接着往下聊，模型看到的就是改过的版本。
+ * 记一个 editedAt，方便以后想标「这条改过」。
+ */
+export function updateDreamMessage(index, text) {
+  const d = getDream();
+  if (!d.messages[index]) return d;
+  const body = String(text ?? '').trim();
+  if (!body) return d;
+
+  const messages = d.messages.map((m, i) =>
+    i === index ? { ...m, text: body, editedAt: Date.now() } : m,
+  );
+  return saveDream({ messages });
+}
+
+/** 删某一条。删完后面的顺次前移，index 不用重算。 */
+export function deleteDreamMessage(index) {
+  const d = getDream();
+  const messages = d.messages.filter((_, i) => i !== index);
+  return saveDream({ messages });
 }
 
 export function clearDream() {
@@ -1207,10 +1223,6 @@ export async function runDream(input) {
   if (!text) return;
 
   const settings = getSettings();
-  if (!settings.enabled) {
-    emit({ status: 'error', error: '推进台已关闭' });
-    return;
-  }
 
   const ch = channelFor('choices');
   if (!channelReady(ch)) {
@@ -1267,7 +1279,6 @@ export async function runDream(input) {
       retries: settings.retries,
       stream: false,
       // 梦中梦要回答长问题，单独给输出上限，否则半句话就断
-      maxTokens: settings.dreamMaxTokens || 12000,
     };
 
     const first = await callTask(ch, 'dream', baseMessages, reqOpts, settings);

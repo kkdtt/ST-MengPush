@@ -5,11 +5,13 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.14.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.15.0';
 import {
   cancel,
   clearHistory,
   clearDream,
+  deleteDreamMessage,
+  updateDreamMessage,
   clearStory,
   getDream,
   getState,
@@ -24,28 +26,56 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.14.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.14.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.14.0';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.14.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.14.0';
-import { testChannel } from '../core/api.js?v=2.14.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.14.0';
+} from '../core/engine.js?v=2.15.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.15.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.15.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.15.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.15.0';
+import { testChannel } from '../core/api.js?v=2.15.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.15.0';
 
-const TABS = [
-  { id: 'dream', label: '梦中梦', icon: 'moon' },
-  { id: 'choices', label: '走向', icon: 'branch' },
-  { id: 'intro', label: '新人', icon: 'user' },
-  { id: 'beats', label: '节拍', icon: 'wave' },
-  { id: 'story', label: '创作', icon: 'pen' },
-  { id: 'history', label: '往轮', icon: 'clock' },
+/**
+ * 顶层三组：自动 / 手动 / 设置。
+ *
+ * 六个平铺的 tab 太多了——「走向」和「新人」都是正文写完自动跑的，
+ * 「梦中梦」「创作」「节拍」都是想起来才点的，混在一起每次都要找。
+ * 分成两堆之后，顶层只有三个入口，组内再选。
+ */
+const GROUPS = [
+  {
+    id: 'auto',
+    label: '自动',
+    icon: 'refresh',
+    items: [
+      { id: 'choices', label: '走向', icon: 'branch' },
+      { id: 'intro', label: '新人', icon: 'user' },
+      { id: 'history', label: '往轮', icon: 'clock' },
+    ],
+  },
+  {
+    id: 'manual',
+    label: '手动',
+    icon: 'pen',
+    items: [
+      { id: 'dream', label: '梦中梦', icon: 'moon' },
+      { id: 'story', label: '创作', icon: 'pen' },
+      { id: 'beats', label: '节拍', icon: 'wave' },
+    ],
+  },
+  { id: 'settings', label: '设置', icon: 'gear' },
 ];
 
 export function createPanel(shadow) {
   const settings = getSettings();
 
   let activeTab = settings.panel?.tab || 'choices';
-  let settingsOpen = false;
+  // 顶层分组：auto / manual / settings
+  let activeGroup = settings.panel?.group || 'auto';
+  /** 兼容老配置：没有 group 时按当前 tab 反推 */
+  if (!settings.panel?.group) {
+    const g = GROUPS.find((x) => x.items?.some((it) => it.id === (settings.panel?.tab || 'choices')));
+    if (g) activeGroup = g.id;
+  }
   let settingsTab = 'basic'; // basic | prompts
   let collapsed = false;
 
@@ -55,17 +85,12 @@ export function createPanel(shadow) {
   const footEl = h('div', { class: 'foot' }, [statusEl]);
   const bodyEl = h('div', { class: 'body' });
   const tabsEl = h('div', { class: 'tabs', role: 'tablist' });
+  const subTabsEl = h('div', { class: 'subtabs' });
 
   const refreshBtn = h(
     'button',
     { class: 'icon-btn', title: '重跑这一轮（Alt+R）', onclick: () => trigger('refresh') },
     [icon('refresh')],
-  );
-
-  const gearBtn = h(
-    'button',
-    { class: 'icon-btn', title: '设置', onclick: () => toggleSettings() },
-    [icon('gear')],
   );
 
   const collapseBtn = h(
@@ -79,12 +104,13 @@ export function createPanel(shadow) {
       icon('brand', 15),
       h('span', { class: 'brand-name', text: '推 进 台' }),
     ]),
-    h('div', { class: 'tools' }, [refreshBtn, gearBtn, collapseBtn]),
+    h('div', { class: 'tools' }, [refreshBtn, collapseBtn]),
   ]);
 
   const panelEl = h('div', { class: 'panel', role: 'dialog', 'aria-label': '剧情推进台' }, [
     headEl,
     tabsEl,
+    subTabsEl,
     bodyEl,
     footEl,
   ]);
@@ -288,16 +314,7 @@ export function createPanel(shadow) {
     setCollapsed(!collapsed);
   }
 
-  function toggleSettings(force) {
-    settingsOpen = force === undefined ? !settingsOpen : force;
-    if (settingsOpen) {
-      tabsEl.hidden = true;
-      renderSettings();
-    } else {
-      tabsEl.hidden = false;
-      render(getState());
-    }
-  }
+
 
   /* ---------------- 触发 ---------------- */
 
@@ -313,44 +330,93 @@ export function createPanel(shadow) {
 
   function renderTabs(state) {
     clear(tabsEl);
-    for (const t of TABS) {
+    for (const g of GROUPS) {
+      tabsEl.appendChild(
+        h(
+          'button',
+          {
+            class: 'tab',
+            role: 'tab',
+            'aria-selected': String(activeGroup === g.id),
+            onclick: () => switchGroup(g.id),
+          },
+          [icon(g.icon, 13), h('span', { class: 'tab-label', text: g.label })],
+        ),
+      );
+    }
+
+    // 组内子项。设置组没有子项，这一行直接收起来。
+    clear(subTabsEl);
+    const group = GROUPS.find((x) => x.id === activeGroup);
+    if (!group?.items) {
+      subTabsEl.hidden = true;
+      return;
+    }
+    subTabsEl.hidden = false;
+
+    for (const it of group.items) {
       const count =
-        t.id === 'choices'
+        it.id === 'choices'
           ? state.result?.choices?.length || 0
-          : t.id === 'intro'
+          : it.id === 'intro'
             ? state.result?.intros?.length || 0
-            : t.id === 'beats'
+            : it.id === 'beats'
               ? state.result?.beats?.length || 0
               : 0;
 
-      const btn = h(
-        'button',
-        {
-          class: 'tab',
-          role: 'tab',
-          'aria-selected': String(activeTab === t.id),
-          onclick: () => {
-            activeTab = t.id;
-            patchSettings({ panel: { ...getSettings().panel, tab: t.id } });
-            if (t.id === 'history') loadHistory();
-            render(getState());
+      subTabsEl.appendChild(
+        h(
+          'button',
+          {
+            class: 'subtab' + (activeTab === it.id ? ' on' : ''),
+            onclick: () => {
+              activeTab = it.id;
+              patchSettings({ panel: { ...getSettings().panel, tab: it.id } });
+              if (it.id === 'history') loadHistory();
+              render(getState());
+            },
           },
-        },
-        [
-          icon(t.icon || 'brand', 13),
-          h('span', { class: 'tab-label', text: t.label }),
-          count ? h('span', { class: 'badge', text: String(count) }) : null,
-        ],
+          [
+            icon(it.icon, 12),
+            h('span', { text: it.label }),
+            count ? h('span', { class: 'badge', text: String(count) }) : null,
+          ],
+        ),
       );
-      tabsEl.appendChild(btn);
     }
+  }
+
+  /** 切顶层组。切过去时当前子项不在这一组里，就落到第一个。 */
+  function switchGroup(id) {
+    activeGroup = id;
+
+    if (id === 'settings') {
+      patchSettings({ panel: { ...getSettings().panel, group: id } });
+      // 先重画标签，把组内那一行收起来，再渲染设置页
+      renderTabs(getState());
+      renderSettings();
+      return;
+    }
+
+    const g = GROUPS.find((x) => x.id === id);
+    if (g && !g.items.some((it) => it.id === activeTab)) {
+      activeTab = g.items[0].id;
+      if (activeTab === 'history') loadHistory();
+    }
+
+    patchSettings({ panel: { ...getSettings().panel, group: id, tab: activeTab } });
+    render(getState());
   }
 
   /* ---------------- 渲染：内容 ---------------- */
 
   function render(state) {
-    if (settingsOpen) return;
     renderTabs(state);
+
+    if (activeGroup === 'settings') {
+      renderSettings();
+      return;
+    }
 
     // 梦中梦和创作页都有常驻输入区，不能走「清空重建」那条路，否则一打字就失焦
     if (activeTab === 'dream') {
@@ -489,10 +555,6 @@ export function createPanel(shadow) {
     }
 
     wrap.appendChild(document.createTextNode(texts[note] || texts.idle || '还没有内容'));
-    if (note === 'skipped') {
-      const pct = Math.round((getSettings().danmakuChance ?? 0.4) * 100);
-      wrap.appendChild(h('span', { class: 'hint', text: `自动模式下按 ${pct}% 概率触发，也可以直接点下面生成` }));
-    }
     wrap.appendChild(
       h('div', { class: 'note-row' }, [
         h('button', { class: 'mini-btn', text: '生成', onclick: () => runOne(task) }),
@@ -788,11 +850,54 @@ export function createPanel(shadow) {
       return;
     }
 
-    for (const m of d.messages) {
+    d.messages.forEach((m, idx) => {
       const isUser = m.role === 'user';
+      const textEl = h('div', { class: 'dream-text', text: m.text });
+
       const bubble = h('div', { class: 'dream-msg ' + (isUser ? 'user' : 'assistant') }, [
-        h('span', { class: 'dream-who', text: isUser ? '你' : '弥彦' }),
-        h('div', { class: 'dream-text', text: m.text }),
+        h('div', { class: 'dream-head' }, [
+          h('span', { class: 'dream-who', text: isUser ? '你' : '弥彦' }),
+          h('div', { class: 'dream-actions' }, [
+            h('button', {
+              class: 'dream-act',
+              text: '改',
+              title: '改这一条，改完接着往下聊',
+              onclick: () => {
+                // 就地换成输入框，保存后整页重绘，不用手动还原
+                const ta = h('textarea', { class: 'dream-edit' });
+                ta.value = m.text;
+                bubble.replaceChild(ta, textEl);
+                bubble.querySelector('.dream-actions').hidden = true;
+
+                const bar = h('div', { class: 'dream-edit-bar' }, [
+                  h('button', {
+                    class: 'mini-btn primary',
+                    text: '保存',
+                    onclick: () => updateDreamMessage(idx, ta.value),
+                  }),
+                  h('button', {
+                    class: 'mini-btn',
+                    text: '取消',
+                    onclick: () => {
+                      bubble.replaceChild(textEl, ta);
+                      bubble.querySelector('.dream-actions').hidden = false;
+                      bar.remove();
+                    },
+                  }),
+                ]);
+                bubble.appendChild(bar);
+                ta.focus();
+              },
+            }),
+            h('button', {
+              class: 'dream-act',
+              text: '删',
+              title: '删掉这一条',
+              onclick: () => deleteDreamMessage(idx),
+            }),
+          ]),
+        ]),
+        textEl,
       ]);
 
       // 弥彦顺手递的走向，直接做成可点的卡片
@@ -823,7 +928,7 @@ export function createPanel(shadow) {
       }
 
       dreamLog.appendChild(bubble);
-    }
+    });
 
     if (running) {
       dreamLog.appendChild(
@@ -1116,8 +1221,8 @@ export function createPanel(shadow) {
 
     const back = h('button', {
       class: 'mini-btn',
-      text: '← 返回',
-      onclick: () => toggleSettings(false),
+      text: '← 自动',
+      onclick: () => switchGroup('auto'),
     });
     footEl.appendChild(back);
 
@@ -1185,21 +1290,8 @@ export function createPanel(shadow) {
       if (h4) h4.parentElement.classList.toggle('collapsed');
     });
 
-    /* --- 总开关 --- */
+    /* --- 自动跑哪些 --- */
     const g1 = h('div', { class: 'set-group' }, [h('h4', { text: '运行' })]);
-    g1.appendChild(
-      switchRow('启用推进台', s.enabled, (v) => {
-        patchSettings({ enabled: v });
-        renderSettings();
-      }),
-    );
-    g1.appendChild(
-      h('div', {
-        class: 'prompt-hint',
-        style: { marginTop: '2px', marginBottom: '4px' },
-        text: '关掉＝整个插件停摆，手动点按钮也不跑。开着但下面全关＝只有你点「重跑」时才跑。',
-      }),
-    );
     g1.appendChild(
       switchRow('正文写完自动跑', s.auto, (v) => patchSettings({ auto: v })),
     );
@@ -1211,9 +1303,6 @@ export function createPanel(shadow) {
     );
     g1.appendChild(
       switchRow('自动跑新人', s.modules.intro, (v) => patchSettings({ modules: { intro: v } })),
-    );
-    g1.appendChild(
-      switchRow('节拍表（仅手动）', s.modules.beats, (v) => patchSettings({ modules: { beats: v } })),
     );
     box.appendChild(g1);
 
@@ -1263,16 +1352,7 @@ export function createPanel(shadow) {
     const g4 = h('div', { class: 'set-group' }, [h('h4', { text: '参数' })]);
     g4.appendChild(numRow('选项条数', s.choiceCount, 3, 20, 1, (v) => patchSettings({ choiceCount: v }), '条'));
     g4.appendChild(
-      numRow('弹幕概率', s.danmakuChance, 0, 1, 0.05, (v) => patchSettings({ danmakuChance: v })),
-    );
-    g4.appendChild(
       numRow('对话层数', s.historyDepth, 0, 50, 1, (v) => patchSettings({ historyDepth: v }), '层'),
-    );
-    g4.appendChild(
-      numRow('最大回复', s.maxReplyTokens, 500, 64000, 500, (v) => patchSettings({ maxReplyTokens: v }), 'token'),
-    );
-    g4.appendChild(
-      numRow('梦中梦上限', s.dreamMaxTokens, 500, 32000, 500, (v) => patchSettings({ dreamMaxTokens: v }), 'token'),
     );
     g4.appendChild(
       switchRow('空 user 补空格', s.emptyUserPad, (v) => {
@@ -1954,7 +2034,7 @@ export function createPanel(shadow) {
       min: '0',
       max: '64000',
       step: '500',
-      placeholder: '用全局',
+      placeholder: '留空=上游默认',
       value: ch.maxTokens ? String(ch.maxTokens) : '',
       onchange: (e) => {
         ch.maxTokens = Number(e.target.value) || 0;
@@ -2065,7 +2145,8 @@ export function createPanel(shadow) {
   /* ---------------- 订阅 ---------------- */
 
   const unsubscribe = subscribe((state) => {
-    if (settingsOpen) {
+    // 设置页重绘会丢输入焦点，跑任务时只更新状态文字
+    if (activeGroup === 'settings') {
       applyStatus(state);
       return;
     }
@@ -2078,8 +2159,8 @@ export function createPanel(shadow) {
 
   setCollapsed(settings.panel?.collapsed ?? false);
   if (!settings.channels.length) {
-    settingsOpen = true;
-    tabsEl.hidden = true;
+    // 没配渠道先扔进设置，省得点半天才发现没东西可跑
+    activeGroup = 'settings';
     renderSettings();
   } else {
     render(getState());

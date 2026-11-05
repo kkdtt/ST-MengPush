@@ -1,5 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.14.0';
-import { VERSION } from './version.js?v=2.14.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.15.0';
+import { VERSION } from './version.js?v=2.15.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -28,7 +28,6 @@ export function defaults() {
     },
 
     choiceCount: 5,
-    danmakuChance: 0.4,
 
     /** 工具通道：内容走 tool_calls 的 arguments，断流时能按半截 JSON 救回，且触发内容过滤的概率更低 */
     useToolChannel: false,
@@ -53,12 +52,6 @@ export function defaults() {
 
     /** 一次出几条反派行动 */
     moveCount: 4,
-
-    /** 全局最大回复长度（token）。渠道里留空时用这个 */
-    maxReplyTokens: 4000,
-
-    /** 梦中梦单次回答的输出上限。出选项用渠道默认，这里要单独放大 */
-    dreamMaxTokens: 12000,
 
     /** 自定义解析正则：空串表示用内置默认（<content> / <details><summary>摘要</summary>） */
     bodyRegex: '',
