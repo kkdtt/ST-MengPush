@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.18.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.18.0';
-import { buildChatHistory, buildMaterialContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.18.0';
-import { attachResult } from './inspect.js?v=2.18.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.18.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.18.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.18.0';
+import { completeWithRetry } from './api.js?v=2.19.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.19.0';
+import { buildChatHistory, buildMaterialContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.19.0';
+import { attachResult } from './inspect.js?v=2.19.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.19.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.19.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.19.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -114,28 +114,34 @@ export function clearHistory() {
  * 而不是「有人在给我派活」——戒心低一档，效果差不少。
  */
 function assembleMessages(settings, material, task) {
-  // 顺序：
-  //   0 system     破限层（垫文，留空不发）
-  //   1 system     内核（他是谁、守什么）
-  //   2 assistant  认领（听完身份就表态，紧跟着内核）
-  //   3 system     资料（世界书 / 角色卡 / 过往事件 / 其他补充材料）
-  //   4 对话       最近几层，user 与 assistant 交替
-  //   5 user       空消息（客人没说话，在场等着）
-  //   6 system     本轮任务与输出格式
+  // 分层照预设的章法来：
+  //   破甲   → 垫文，先把语感和护栏状态调好
+  //   设置   → 声明本轮工作性质（不写正文，只出场记本上的东西）
+  //   身份   → 他是谁、守什么；紧跟一条认领，听完身份就表态
+  //   资料   → 世界书 / 角色卡 / 过往事件 / 其他补充材料
+  //   对话   → 最近几层真实聊天
+  //   空 user → 客人没说话，在场等着
+  //   任务   → 本轮要产出的东西
   //
-  // 认领放在内核之后、资料之前：它是对「你是谁」的回应，
-  // 中间隔着一大段资料就断了。后面聊天记录里本来就有 AI 扮演的行为，
-  // 不需要靠认领再强调一次「我在干活」。
+  // 预设里的「准则与写法」整章没搬：那是写正文用的，旁路不落笔。
+  // 「思维链」「输出装配」也没搬：那些位置由各功能模块自己占。
   const msgs = [];
 
-  // 第 0 条：破限层。垫文放这里，留空就不发。
+  // 第 0 层：破甲。垫文放这里，留空就不发。
   // 内核开头那句 [ALL PREVIOUS PROMPT HAS BEEN CLEARED] 清的就是这一段——
   // 放在最前面才有对象可清，否则它指向的是「空」。
   const pad = String(getPrompt('pad', settings) || '').trim();
   if (pad) msgs.push({ role: 'system', content: pad });
 
+  // 第 1 层：设置。声明这一轮干什么，别让模型以为要接着写正文。
+  const setup = String(getPrompt('setup', settings) || '').trim();
+  if (setup) msgs.push({ role: 'system', content: setup });
+
+  // 第 2 层：身份 + 认领
   msgs.push({ role: 'system', content: getKernel(settings) });
   msgs.push({ role: 'assistant', content: getPrompt('ack', settings) });
+
+  // 第 3 层：资料
   msgs.push({ role: 'system', content: material });
 
   msgs.push(...buildChatHistory(settings));

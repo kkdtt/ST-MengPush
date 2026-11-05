@@ -2027,3 +2027,17 @@ button.outline-item:last-child {
   background: rgba(214, 169, 95, 0.16);
   color: var(--warn);
 }
+
+/* ---------------- 提示词分层：资料层预览 ---------------- */
+
+.layer-preview {
+  margin: 4px 0 2px;
+  padding: 8px 10px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.9;
+  color: var(--fg-faint);
+  white-space: pre-wrap;
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 7px;
+}

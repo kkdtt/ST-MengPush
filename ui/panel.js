@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.18.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.19.0';
 import {
   cancel,
   clearHistory,
@@ -26,13 +26,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.18.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.18.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.18.0';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.18.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.18.0';
-import { testChannel } from '../core/api.js?v=2.18.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.18.0';
+} from '../core/engine.js?v=2.19.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.19.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.19.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.19.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.19.0';
+import { testChannel } from '../core/api.js?v=2.19.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.19.0';
 
 /**
  * 顶层三组：自动 / 手动 / 设置。
@@ -63,6 +63,45 @@ const GROUPS = [
     ],
   },
   { id: 'settings', label: '设置', icon: 'gear' },
+];
+
+/**
+ * 提示词页的分层。
+ *
+ * 照预设的章法：破甲 → 设置 → 身份 → 资料 → 功能模块。
+ * 预设里「准则与写法」整章没搬（旁路不落笔），
+ * 「思维链」「输出装配」也没搬——那些位置由各功能模块自己占。
+ */
+const PROMPT_LAYERS = [
+  {
+    name: '破甲',
+    title: '第 0 层 · 破甲',
+    desc: '垫文。放写作样本、破限话术，调语感和护栏状态。留空就不发这条。',
+  },
+  {
+    name: '设置',
+    title: '第 1 层 · 设置',
+    desc: '声明本轮工作性质。预设里这层装变量，旁路换成「我不写正文，只出场记本上的东西」。',
+  },
+  {
+    name: '身份',
+    title: '第 2 层 · 身份',
+    desc: '他是谁、守什么，加一条听完身份就表态的认领。',
+  },
+  {
+    name: '资料',
+    title: '第 3 层 · 资料',
+    desc: '这一层不用编辑，每次自动拼装：',
+    preview: `<世界观与人物设定>        世界书 before + 角色卡
+<世界规则与其他补充材料>   世界书 after + @深度条目
+<其他补充材料>            你导入的那本世界书（开着的条目）
+<过往事件>               大总结 + 更早的剧情摘要`,
+  },
+  {
+    name: '功能模块',
+    title: '第 4 层 · 功能模块',
+    desc: '换哪块内容，就跑哪个功能。框架不动。',
+  },
 ];
 
 export function createPanel(shadow) {
@@ -1298,16 +1337,28 @@ export function createPanel(shadow) {
       return;
     }
 
-    // 提示词页单独一屏，不再塞在设置页最底下
+    // 提示词页单独一屏，按分层顺序排
     if (settingsTab === 'prompts') {
-      const gp = h('div', { class: 'set-group' });
-      for (const field of PROMPT_FIELDS) gp.appendChild(promptEditor(field));
-      box.appendChild(gp);
+      for (const layer of PROMPT_LAYERS) {
+        const fields = PROMPT_FIELDS.filter((f) => f.group === layer.name);
+        const gp = h('div', { class: 'set-group' }, [
+          h('h4', { text: `${layer.title}${fields.length ? '' : ' · 自动拼装'}` }),
+        ]);
+
+        if (fields.length) {
+          for (const field of fields) gp.appendChild(promptEditor(field));
+        } else {
+          gp.appendChild(h('div', { class: 'prompt-hint', text: layer.desc }));
+          gp.appendChild(h('pre', { class: 'layer-preview', text: layer.preview || '' }));
+        }
+        box.appendChild(gp);
+      }
+
       box.appendChild(
         h('div', {
           class: 'empty',
           style: { padding: '2px 0 0', textAlign: 'left', fontSize: '11px', lineHeight: '1.8' },
-          text: '留空 = 用内置默认。改坏了点「恢复默认」即可。',
+          text: '留空 = 用内置默认。改坏了点「恢复默认」即可。点分组标题可以折叠。',
         }),
       );
 

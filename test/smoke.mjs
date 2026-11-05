@@ -312,9 +312,12 @@ eq('非法 type 归到顺承', st.result.choices[2]?.type, '顺承');
 eq('风险字段保留', st.result.choices[1]?.risk, '高');
 ok('结果带 messageId', typeof st.result?.messageId === 'number' && st.result.messageId === 2);
 ok('请求体确实发出', lastRequestBody?.model === 'gemini-2.5-flash');
-/** 垫文开着时内核在第 2 条，关着在第 1 条 */
+/** 按内容找内核：破甲是小说样本、设置是工作性质声明，都靠特征排除掉 */
 function kernelIndex(msgs) {
-  return String(msgs?.[0]?.content || '').includes('<sample_novel>') ? 1 : 0;
+  const i = (msgs || []).findIndex(
+    (m) => m.role === 'system' && String(m.content || '').includes('弥彦'),
+  );
+  return i < 0 ? 0 : i;
 }
 const ki = kernelIndex(lastRequestBody?.messages);
 ok('提示词用了内核', String(lastRequestBody?.messages?.[ki]?.content).includes('弥彦'));
@@ -664,7 +667,8 @@ const withPad = await engine.previewMessages();
 eq('破限层是第 1 条', withPad[0].role, 'system');
 ok('破限层内容对', withPad[0].content.includes('这是垫文'));
 eq('破限层之后是内核', withPad[1].role, 'system');
-ok('内核紧接破限层', withPad[1].content.includes('弥彦'));
+ok('破限之后是设置层', withPad[1].content.includes('本轮工作性质'), withPad[1].content.slice(0, 30));
+ok('设置之后才是内核', withPad[2].content.includes('弥彦'));
 
 settingsMod.patch({ prompts: { ...getSettingsSafe(), pad: '' } });
 const noPad = await engine.previewMessages();
@@ -790,7 +794,7 @@ const got = settingsMod.get();
 ok('旧字段被清掉', got.enabled === undefined && got.maxReplyTokens === undefined);
 ok('废弃字段被清掉', got.worldInfoBudget === undefined && got.jsonMode === undefined);
 eq('自定义提示词保留', got.prompts.kernel, '旧内核还在');
-eq('提示词 key 补全', Object.keys(got.prompts).length, 12);
+eq('提示词 key 补全', Object.keys(got.prompts).length, 13);
 ok('routing 补全了新任务', 'moves' in got.routing && 'intro' in got.routing && 'profile' in got.routing);
 ok('modules 只剩四个开关', !('beats' in got.modules) && 'moves' in got.modules);
 eq('modules.choices 默认开', got.modules.choices, true);
