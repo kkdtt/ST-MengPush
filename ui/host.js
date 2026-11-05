@@ -6,8 +6,8 @@
  * 是唯一能同时解决这两件事的办法。
  */
 
-import { detectTheme } from '../core/ctx.js?v=2.10.1';
-import { VERSION } from '../core/version.js?v=2.10.1';
+import { detectTheme } from '../core/ctx.js?v=2.10.2';
+import { VERSION } from '../core/version.js?v=2.10.2';
 
 const HOST_ID = 'meng-push-host';
 
@@ -153,8 +153,27 @@ export function icon(name, size = 16) {
 /* ---------------- 拖动 ---------------- */
 
 /**
- * 让元素可拖动。坐标会写回 onMove 回调，由调用方决定存哪。
+ * 把坐标限制在视口内。
+ *
+ * 移动端上元素可能比视口还宽（窄屏 342px 面板 + 边距），
+ * 这时 upper 会算成负数，Math.min 一夹就跑到屏幕外了，所以先兜个 0。
+ */
+function clampToViewport(x, y, w, h) {
+  const maxX = Math.max(0, window.innerWidth - w - 4);
+  const maxY = Math.max(0, window.innerHeight - h - 4);
+  return {
+    x: Math.min(Math.max(0, x), maxX),
+    y: Math.min(Math.max(0, y), maxY),
+  };
+}
+
+/**
+ * 让元素可拖动。坐标会写回 onEnd 回调，由调用方决定存哪。
  * 拖动结束后才回调，避免拖的时候疯狂写 settings。
+ *
+ * 用 Pointer Events 而不是 mouse 事件：手机、平板、触控笔都是 pointer，
+ * 鼠标那一套在触屏上一个都不会触发，这也是移动端拖不动的根本原因。
+ * 配合 CSS 的 touch-action: none，浏览器才不会把手势当成页面滚动。
  */
 export function makeDraggable(handle, el, { onEnd } = {}) {
   let startX = 0;
@@ -162,13 +181,35 @@ export function makeDraggable(handle, el, { onEnd } = {}) {
   let originX = 0;
   let originY = 0;
   let dragging = false;
+  let pointerId = null;
 
-  handle.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    if (e.target.closest('button, input, select')) return;
+  const finish = (commit) => {
+    if (!dragging) return;
+    dragging = false;
+    pointerId = null;
+    el.classList.remove('dragging');
+
+    if (commit !== false) {
+      // 优先用写进 style 的值：拖动过程中它就是最终位置，
+      // 不受 transform / 动画影响；拿不到再退回布局测量
+      const x = parseFloat(el.style.left);
+      const y = parseFloat(el.style.top);
+      const r = el.getBoundingClientRect();
+      onEnd?.({
+        x: Math.round(Number.isFinite(x) ? x : r.left),
+        y: Math.round(Number.isFinite(y) ? y : r.top),
+      });
+    }
+  };
+
+  handle.addEventListener('pointerdown', (e) => {
+    // 鼠标只认左键；触屏的 button 恒为 0
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target.closest('button, input, select, textarea, a')) return;
 
     const r = el.getBoundingClientRect();
     dragging = true;
+    pointerId = e.pointerId;
     startX = e.clientX;
     startY = e.clientY;
     originX = r.left;
@@ -178,23 +219,59 @@ export function makeDraggable(handle, el, { onEnd } = {}) {
     el.style.top = r.top + 'px';
     el.style.right = 'auto';
     el.style.bottom = 'auto';
+    el.classList.add('dragging');
+
+    // 捕获指针：手指移出面板范围也照样收得到 move，
+    // 否则一拖快就断在边界上，手感很怪
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      /* 某些环境不支持，退化成普通事件流 */
+    }
+
     e.preventDefault();
   });
 
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const w = el.offsetWidth;
-    const hgt = el.offsetHeight;
-    const x = Math.min(Math.max(0, originX + e.clientX - startX), window.innerWidth - w - 4);
-    const y = Math.min(Math.max(0, originY + e.clientY - startY), window.innerHeight - hgt - 4);
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    const { x, y } = clampToViewport(
+      originX + e.clientX - startX,
+      originY + e.clientY - startY,
+      el.offsetWidth,
+      el.offsetHeight,
+    );
     el.style.left = x + 'px';
     el.style.top = y + 'px';
   });
 
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
-    const r = el.getBoundingClientRect();
-    onEnd?.({ x: Math.round(r.left), y: Math.round(r.top) });
+  handle.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== pointerId) return;
+    finish(true);
   });
+
+  // 被系统手势打断（来电、通知下拉、切后台）时不留脏状态
+  handle.addEventListener('pointercancel', () => finish(false));
+  handle.addEventListener('lostpointercapture', () => finish(true));
+}
+
+/**
+ * 窗口尺寸变化时把面板拉回视口内。
+ * 手机横竖屏切换、地址栏收起，都会让原本存下的坐标跑到屏幕外。
+ */
+export function keepInViewport(el) {
+  const fix = () => {
+    if (!el || el.hidden) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width && !r.height) return;
+    const { x, y } = clampToViewport(r.left, r.top, r.width, r.height);
+    if (Math.abs(x - r.left) > 1 || Math.abs(y - r.top) > 1) {
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+    }
+  };
+  window.addEventListener('resize', fix);
+  window.addEventListener('orientationchange', () => setTimeout(fix, 260));
+  return fix;
 }

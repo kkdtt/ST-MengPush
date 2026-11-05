@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.10.1';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.10.2';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.10.1';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.10.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.10.1';
-import { parsePreset } from '../core/import.js?v=2.10.1';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.10.1';
-import { testChannel } from '../core/api.js?v=2.10.1';
-import { clear, h, icon, makeDraggable } from './host.js?v=2.10.1';
+} from '../core/engine.js?v=2.10.2';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.10.2';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.10.2';
+import { parsePreset } from '../core/import.js?v=2.10.2';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.10.2';
+import { testChannel } from '../core/api.js?v=2.10.2';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.10.2';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -127,36 +127,80 @@ export function createPanel(shadow) {
     onEnd: ({ x, y }) => patchSettings({ panel: { ...getSettings().panel, x, y } }),
   });
 
+  // 手机横竖屏切换、地址栏收起后，存下的坐标可能已经在屏幕外了
+  const fixPanelPos = keepInViewport(panelEl);
+  const fixOrbPos = keepInViewport(orbEl);
+  // 首帧布局还没出来时测量全是 0，等一拍再校正
+  setTimeout(() => {
+    fixPanelPos();
+    fixOrbPos();
+  }, 120);
+
+  /**
+   * 悬浮球的拖动。
+   *
+   * 用 Pointer Events：手机上只有 pointer 事件，mousedown 那套根本不触发。
+   * 球同时是「点击展开」和「拖动换位」，所以用 4px 位移阈值区分，
+   * 超过阈值才算拖，否则让 click 照常走。
+   */
   let orbStart = null;
-  orbEl.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
+  let orbPointerId = null;
+
+  orbEl.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     const r = orbEl.getBoundingClientRect();
     orbStart = { x: e.clientX, y: e.clientY, left: r.left, top: r.top, moved: false };
+    orbPointerId = e.pointerId;
+    try {
+      orbEl.setPointerCapture(e.pointerId);
+    } catch {
+      /* 不支持就退化成普通事件流 */
+    }
   });
-  document.addEventListener('mousemove', (e) => {
-    if (!orbStart) return;
+
+  orbEl.addEventListener('pointermove', (e) => {
+    if (!orbStart || e.pointerId !== orbPointerId) return;
     const dx = e.clientX - orbStart.x;
     const dy = e.clientY - orbStart.y;
     if (!orbStart.moved && Math.hypot(dx, dy) < 4) return;
     orbStart.moved = true;
-    orbEl.style.left = Math.max(0, orbStart.left + dx) + 'px';
-    orbEl.style.top = Math.max(0, orbStart.top + dy) + 'px';
+    const maxX = Math.max(0, window.innerWidth - orbEl.offsetWidth - 4);
+    const maxY = Math.max(0, window.innerHeight - orbEl.offsetHeight - 4);
+    orbEl.style.left = Math.min(Math.max(0, orbStart.left + dx), maxX) + 'px';
+    orbEl.style.top = Math.min(Math.max(0, orbStart.top + dy), maxY) + 'px';
     orbEl.style.right = 'auto';
     orbEl.style.bottom = 'auto';
   });
-  document.addEventListener('mouseup', () => {
+
+  const endOrbDrag = () => {
     if (!orbStart) return;
-    if (orbStart.moved) {
-      const r = orbEl.getBoundingClientRect();
-      patchSettings({ panel: { ...getSettings().panel, orbX: Math.round(r.left), orbY: Math.round(r.top) } });
-    }
     const wasDrag = orbStart.moved;
-    orbStart = null;
     if (wasDrag) {
+      // 用 style 里的值，拖动时它就是最终位置；rect 在动画/transform 下会偏
+      const x = parseFloat(orbEl.style.left);
+      const y = parseFloat(orbEl.style.top);
+      const r = orbEl.getBoundingClientRect();
+      patchSettings({
+        panel: {
+          ...getSettings().panel,
+          orbX: Math.round(Number.isFinite(x) ? x : r.left),
+          orbY: Math.round(Number.isFinite(y) ? y : r.top),
+        },
+      });
+      // 拖完别顺手把面板打开：拦掉紧随其后的 click
       orbEl.dataset.suppressClick = '1';
-      setTimeout(() => delete orbEl.dataset.suppressClick, 60);
+      setTimeout(() => delete orbEl.dataset.suppressClick, 120);
     }
+    orbStart = null;
+    orbPointerId = null;
+  };
+
+  orbEl.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== orbPointerId) return;
+    endOrbDrag();
   });
+  orbEl.addEventListener('pointercancel', endOrbDrag);
+
   orbEl.addEventListener(
     'click',
     (e) => {
@@ -175,6 +219,8 @@ export function createPanel(shadow) {
     panelEl.hidden = collapsed;
     orbEl.style.display = collapsed ? 'grid' : 'none';
     patchSettings({ panel: { ...getSettings().panel, collapsed } });
+    // 展开时校正一次：桌面存的坐标在手机上可能已经出界了
+    if (!collapsed) setTimeout(fixPanelPos, 0);
   }
 
   function toggle() {

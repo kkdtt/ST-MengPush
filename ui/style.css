@@ -84,6 +84,7 @@ textarea {
   transition: transform 0.18s ease, border-color 0.18s ease;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: none;
 }
 .orb:hover {
   transform: scale(1.06);
@@ -154,6 +155,8 @@ textarea {
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
+  /* 手机上不加这句，浏览器会把拖动当成页面滚动，pointermove 直接被 cancel */
+  touch-action: none;
 }
 .head:active {
   cursor: grabbing;
@@ -1522,4 +1525,44 @@ button.outline-item:last-child {
   word-break: break-word;
   background: rgba(0, 0, 0, 0.14);
   border-radius: 7px;
+}
+
+
+/* ---------------- 拖动中 ---------------- */
+
+.panel.dragging,
+.panel.dragging * {
+  transition: none !important;
+}
+.orb.dragging {
+  transition: none !important;
+  transform: scale(1.06);
+  cursor: grabbing;
+}
+
+/* ---------------- 窄屏 ---------------- */
+
+@media (max-width: 420px) {
+  .panel {
+    /* 342px 固定宽在 375 屏上顶满，再窄就溢出，改成跟屏幕走 */
+    width: calc(100vw - 20px);
+    max-width: 342px;
+    /* dvh 会随地址栏收放变化，老浏览器忽略这行，退回上面的 vh */
+    max-height: min(72dvh, 720px);
+  }
+}
+
+/* 手指点选目标放大一点，触屏容易点偏 */
+@media (pointer: coarse) {
+  .mini-btn {
+    padding: 6px 10px;
+  }
+  .tab {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .head {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
 }
