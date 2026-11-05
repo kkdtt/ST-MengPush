@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.11.0';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.11.0';
-import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.11.0';
-import { attachResult } from './inspect.js?v=2.11.0';
-import { buildTool, readToolArgs } from './tools.js?v=2.11.0';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.11.0';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.11.0';
+import { completeWithRetry } from './api.js?v=2.12.0';
+import { readChatMeta, writeChatMeta } from './ctx.js?v=2.12.0';
+import { buildChatHistory, buildMaterialContext, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.12.0';
+import { attachResult } from './inspect.js?v=2.12.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.12.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.12.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.12.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -114,13 +114,29 @@ export function clearHistory() {
  * 而不是「有人在给我派活」——戒心低一档，效果差不少。
  */
 function assembleMessages(settings, material, task) {
+  // 顺序有讲究：
+  //   1 system     内核（他是谁、守什么）
+  //   2 system     资料（世界书 / 角色卡 / 过往事件 / 全局世界书）
+  //   3 对话       最近几层，user 与 assistant 交替
+  //   4 assistant  认领（放在对话之后：先看过往，再表态）
+  //   5 user       空消息（客人没说话，在场等着）
+  //   6 system     本轮任务与输出格式
+  //
+  // 认领从第 2 位挪到第 4 位，是为了让它读起来像「看完聊天记录后的表态」，
+  // 而不是「开场白」。末尾那条空 user 是关键：它让模型看到的是一个
+  // 客人坐着没吭声、系统递了张条子的场面，而不是「用户派了个活」。
   const msgs = [
     { role: 'system', content: getKernel(settings) },
-    { role: 'assistant', content: getPrompt('ack', settings) },
     { role: 'system', content: material },
   ];
 
   msgs.push(...buildChatHistory(settings));
+
+  msgs.push({ role: 'assistant', content: getPrompt('ack', settings) });
+
+  // 空 user。有些网关对空 content 会报 400，那种情况在设置里打开
+  // emptyUserPad，塞一个空格进去。
+  msgs.push({ role: 'user', content: settings.emptyUserPad ? ' ' : '' });
 
   // 最后一条永远是任务。末尾这句话有两个作用：
   //   1. 对模型：明确「按格式交结果」，别顺着对话往下写

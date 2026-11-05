@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.11.0';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.12.0';
 import {
   cancel,
   clearHistory,
@@ -23,13 +23,13 @@ import {
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.11.0';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.11.0';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.11.0';
-import { parsePreset } from '../core/import.js?v=2.11.0';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.11.0';
-import { testChannel } from '../core/api.js?v=2.11.0';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.11.0';
+} from '../core/engine.js?v=2.12.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.12.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.12.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.12.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.12.0';
+import { testChannel } from '../core/api.js?v=2.12.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.12.0';
 
 const TABS = [
   { id: 'dream', label: '梦中梦' },
@@ -1108,6 +1108,8 @@ export function createPanel(shadow) {
           text: '留空 = 用内置默认。改坏了点「恢复默认」即可。',
         }),
       );
+
+      box.appendChild(buildWorldbookGroup());
       return;
     }
 
@@ -1200,6 +1202,20 @@ export function createPanel(shadow) {
     g4.appendChild(
       numRow('梦中梦上限', s.dreamMaxTokens, 500, 32000, 500, (v) => patchSettings({ dreamMaxTokens: v }), 'token'),
     );
+    g4.appendChild(
+      switchRow('空 user 补空格', s.emptyUserPad, (v) => {
+        patchSettings({ emptyUserPad: v });
+        renderSettings();
+      }),
+    );
+    if (s.emptyUserPad) {
+      g4.appendChild(
+        h('div', {
+          class: 'prompt-hint',
+          text: '任务前那条 user 默认是空的。个别网关会拒收空 content，报 400 时把这里打开。',
+        }),
+      );
+    }
     g4.appendChild(
       switchRow('工具通道（抗截断）', s.useToolChannel, (v) => {
         patchSettings({ useToolChannel: v });
@@ -1353,95 +1369,6 @@ export function createPanel(shadow) {
     );
     box.appendChild(gbak);
 
-    /* --- 预设导入 --- */
-    const g6 = h('div', { class: 'set-group' }, [h('h4', { text: '预设导入' })]);
-    g6.appendChild(
-      h('div', {
-        class: 'prompt-hint',
-        text: '从预设 JSON 里抽出人格、宪章、总纲、铁律、私密场景等条目，拼成内核。世界书 / 聊天记录 / 角色卡不在这里，那些由插件实时读取。',
-      }),
-    );
-
-    const preview = h('div', { class: 'import-preview' });
-
-    const fileInput = h('input', {
-      type: 'file',
-      accept: '.json,application/json',
-      style: { display: 'none' },
-      onchange: async (e) => {
-        const file = e.target.files?.[0];
-        e.target.value = '';
-        if (!file) return;
-
-        clear(preview);
-        preview.className = 'import-preview';
-        preview.textContent = '读取中…';
-
-        try {
-          const text = await file.text();
-          const r = parsePreset(text);
-
-          if (!r.ok) {
-            preview.className = 'import-preview fail';
-            preview.textContent = r.error;
-            return;
-          }
-
-          preview.className = 'import-preview';
-          preview.appendChild(
-            h('div', {
-              class: 'import-head',
-              text: `${file.name} · 提取 ${r.entries.length} 条 · ${r.totalChars} 字`,
-            }),
-          );
-
-          const list = h('div', { class: 'import-list' });
-          for (const en of r.entries) {
-            list.appendChild(h('span', { class: 'chip', text: `${en.label} ${en.chars}` }));
-          }
-          preview.appendChild(list);
-
-          preview.appendChild(
-            h('div', { class: 'story-ctrl' }, [
-              h('button', {
-                class: 'mini-btn primary',
-                text: '应用为内核',
-                onclick: () => {
-                  patchSettings({ prompts: { ...getSettings().prompts, kernel: r.kernel } });
-                  preview.className = 'import-preview ok';
-                  preview.textContent = `已应用，内核 ${r.totalChars} 字。去「提示词」分段能看和改。`;
-                },
-              }),
-              h('button', {
-                class: 'mini-btn',
-                text: '取消',
-                onclick: () => {
-                  clear(preview);
-                  preview.className = 'import-preview';
-                },
-              }),
-            ]),
-          );
-        } catch (err) {
-          preview.className = 'import-preview fail';
-          preview.textContent = '读取失败：' + (err?.message || err);
-        }
-      },
-    });
-
-    g6.appendChild(
-      h('div', { class: 'story-ctrl' }, [
-        h('button', {
-          class: 'mini-btn',
-          text: '选择预设 JSON',
-          onclick: () => fileInput.click(),
-        }),
-        fileInput,
-      ]),
-    );
-    g6.appendChild(preview);
-    box.appendChild(g6);
-
     /* --- 关于 --- */
     const g7 = h('div', { class: 'set-group' }, [h('h4', { text: '关于' })]);
     g7.appendChild(
@@ -1478,6 +1405,137 @@ export function createPanel(shadow) {
       clearTimeout(timer);
       timer = setTimeout(() => fn(...args), ms);
     };
+  }
+
+  /**
+   * 全局世界书。
+   *
+   * 独立于 ST 那本：ST 那本按关键词实时注入，插件读不到没触发的条目，
+   * 这里导入一份副本自己管。导入时按灯色定初始开关——
+   * 蓝灯（常驻）开，绿灯（关键词触发）和手动关掉的关。
+   */
+  function buildWorldbookGroup() {
+    const s = getSettings();
+    const wb = s.worldbook || { name: '', entries: [] };
+    const list = Array.isArray(wb.entries) ? wb.entries : [];
+    const st = worldbookStats(wb);
+
+    const g = h('div', { class: 'set-group' }, [h('h4', { text: '全局世界书' })]);
+    g.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        text:
+          '导入 ST 导出的世界书 JSON。蓝灯（常驻）默认开，绿灯和关掉的默认关。' +
+          '开着的条目会拼进资料段，位置在 <世界规则与其他补充材料> 后面。',
+      }),
+    );
+
+    const save = (entries) =>
+      patchSettings({ worldbook: { ...getSettings().worldbook, entries } });
+
+    const fileInput = h('input', {
+      type: 'file',
+      accept: '.json,application/json',
+      style: { display: 'none' },
+      onchange: async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        try {
+          const parsed = parseWorldbook(await file.text(), file.name);
+          patchSettings({ worldbook: parsed });
+          setStatus(`已导入 ${parsed.entries.length} 条，开着 ${parsed.entries.filter((x) => x.on).length} 条`);
+          renderSettings();
+        } catch (err) {
+          setStatus('导入失败：' + (err?.message || err), 'err');
+        }
+      },
+    });
+
+    g.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: list.length ? '换个文件' : '导入世界书 JSON',
+          onclick: () => fileInput.click(),
+        }),
+        list.length
+          ? h('button', {
+              class: 'mini-btn',
+              text: '清除',
+              onclick: () => {
+                patchSettings({ worldbook: { name: '', at: 0, entries: [] } });
+                setStatus('已清除全局世界书');
+                renderSettings();
+              },
+            })
+          : null,
+        fileInput,
+      ]),
+    );
+
+    if (!list.length) return g;
+
+    g.appendChild(
+      h('div', {
+        class: 'wb-summary',
+        text: `${wb.name || '世界书'} · ${st.total} 条 · 开着 ${st.on} 条 · ${st.chars} 字`,
+      }),
+    );
+
+    const rows = h('div', { class: 'wb-list' });
+    list.forEach((e, i) => {
+      const box = h('input', { type: 'checkbox' });
+      box.checked = !!e.on;
+      box.onchange = (ev) => {
+        const next = list.map((x, j) => (j === i ? { ...x, on: ev.target.checked } : x));
+        save(next);
+        renderSettings();
+      };
+      rows.appendChild(
+        h('label', { class: 'wb-row' }, [
+          box,
+          h('span', { class: 'wb-name', text: e.name }),
+          h('span', { class: 'wb-chars', text: (e.chars || String(e.content || '').length) + ' 字' }),
+        ]),
+      );
+    });
+    g.appendChild(rows);
+
+    g.appendChild(
+      h('div', { class: 'story-ctrl' }, [
+        h('button', {
+          class: 'mini-btn',
+          text: '全开',
+          onclick: () => {
+            save(list.map((x) => ({ ...x, on: true })));
+            renderSettings();
+          },
+        }),
+        h('button', {
+          class: 'mini-btn',
+          text: '全关',
+          onclick: () => {
+            save(list.map((x) => ({ ...x, on: false })));
+            renderSettings();
+          },
+        }),
+      ]),
+    );
+
+    g.appendChild(
+      numRow(
+        '字数上限',
+        s.worldbookChars,
+        1000,
+        200000,
+        1000,
+        (v) => patchSettings({ worldbookChars: v }),
+        '字',
+      ),
+    );
+
+    return g;
   }
 
   /* ---------------- 检视页 ---------------- */

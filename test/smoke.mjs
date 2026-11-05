@@ -162,6 +162,7 @@ const engine = await import('../core/engine.js');
 const importer = await import('../core/import.js');
 const toolsMod = await import('../core/tools.js');
 const prompts = await import('../core/prompts.js');
+const wbMod = await import('../core/worldbook.js');
 
 console.log('\n— 解析层 —');
 const msg = CHAT[2].mes;
@@ -314,13 +315,18 @@ ok('提示词用了内核', String(lastRequestBody?.messages?.[0]?.content).incl
 // 五段式结构
 const M = lastRequestBody?.messages || [];
 ok('第 1 段是 system 内核', M[0]?.role === 'system' && M[0].content.includes('弥彦'));
-ok('第 2 段是 assistant 认领', M[1]?.role === 'assistant' && M[1].content.length > 20);
-ok('第 3 段是 system 资料', M[2]?.role === 'system' && M[2].content.includes('旧城区常年下雨'));
-ok('资料段含角色卡', M[2].content.includes('林晚'));
-ok('资料段含大总结', M[2].content.includes('每周三来买同一款咖啡'));
-ok('资料段含过往事件块', M[2].content.includes('<过往事件>'));
+ok('第 2 段是 system 资料', M[1]?.role === 'system' && M[1].content.includes('旧城区常年下雨'));
+// 认领挪到聊天记录之后了
+const ackIdx = M.findIndex((m, i) => i > 0 && m.role === 'assistant' && m.content.length > 20);
+ok('认领在资料之后', ackIdx > 1, '实际位置 ' + ackIdx);
+const emptyUser = M.findIndex((m) => m.role === 'user' && m.content === '');
+ok('末尾有一条空 user', emptyUser > 0, '实际位置 ' + emptyUser);
+ok('空 user 在任务之前', emptyUser === M.length - 2, `空 user ${emptyUser} / 任务 ${M.length - 1}`);
+ok('资料段含角色卡', M[1].content.includes('林晚'));
+ok('资料段含大总结', M[1].content.includes('每周三来买同一款咖啡'));
+ok('资料段含过往事件块', M[1].content.includes('<过往事件>'));
 ok('最后一段是任务', M[M.length - 1].role === 'system' && M[M.length - 1].content.includes('下一步'));
-ok('资料段不混正文', !M[2].content.includes('冻的'));
+ok('资料段不混正文', !M[1].content.includes('冻的'));
 
 // 真实对话段：最近 N 层以 user/assistant 交替出现
 s.historyDepth = 6;
@@ -428,8 +434,9 @@ eq('触发了一次续写（共两次请求）', globalThis.__dreamCall, 2);
 // 注意：这里拿到的是「续写请求」，最后一条是续写指令，不是任务段
 const dmMsgs = lastRequestBody.messages || [];
 eq('梦中梦第 1 段是 system 内核', dmMsgs[0]?.role, 'system');
-eq('梦中梦第 2 段是 assistant 认领', dmMsgs[1]?.role, 'assistant');
-eq('梦中梦第 3 段是 system 资料', dmMsgs[2]?.role, 'system');
+eq('梦中梦第 2 段是 system 资料', dmMsgs[1]?.role, 'system');
+ok('梦中梦有认领', dmMsgs.some((m) => m.role === 'assistant' && m.content.length > 20));
+ok('梦中梦末尾有空 user', dmMsgs.some((m) => m.role === 'user' && m.content === ''));
 
 // 新提示词用了 {{user_last_input}}，不会再追加【客人刚说】，改按人格标记找
 const taskMsg = dmMsgs.find(
@@ -437,7 +444,7 @@ const taskMsg = dmMsgs.find(
 );
 ok('任务段存在且是 system', !!taskMsg);
 ok('任务段含弥彦人格', String(taskMsg?.content || '').includes('线筐'));
-ok('前四段与走向同源（内核+认领+资料）', dmMsgs[0].role === 'system' && dmMsgs[1].role === 'assistant' && dmMsgs[2].role === 'system');
+ok('前两段与走向同源（内核+资料）', dmMsgs[0].role === 'system' && dmMsgs[1].role === 'system');
 
 // 占位符：写了就替换到指定位置，不再末尾追加
 const origDream = s.prompts.dream;
@@ -526,8 +533,9 @@ try {
 }
 const om = lastRequestBody?.messages || [];
 eq('大纲第 1 段是 system', om[0]?.role, 'system');
-eq('大纲第 2 段是 assistant', om[1]?.role, 'assistant');
-eq('大纲第 3 段是 system', om[2]?.role, 'system');
+eq('大纲第 2 段是 system 资料', om[1]?.role, 'system');
+ok('大纲有认领', om.some((m) => m.role === 'assistant' && m.content.length > 20));
+ok('大纲末尾有空 user', om.some((m) => m.role === 'user' && m.content === ''));
 ok('messages 不是嵌套数组', !Array.isArray(om[0]));
 ok('大纲最后一段是任务', om[om.length - 1]?.role === 'system');
 ok('大纲任务段含关键词', String(om[om.length - 1]?.content || '').includes('测试关键词'));
@@ -579,6 +587,56 @@ const parsedMoves = engine.parseMoves(
 );
 eq('第一条标了情欲', parsedMoves[0].nsfw, true);
 eq('第二条是纯利益', parsedMoves[1].nsfw, false);
+
+// 全局世界书：按灯色定开关
+const wbJson = JSON.stringify({
+  entries: {
+    0: { comment: '蓝灯常驻', content: '这条是常驻的', constant: true, disable: false },
+    1: { comment: '绿灯关键词', content: '这条要关键词才触发', constant: false, disable: false },
+    2: { comment: '关掉的蓝灯', content: '这条被关掉了', constant: true, disable: true },
+    3: { comment: '', content: '没名字的条目', constant: true, disable: false },
+  },
+});
+const parsedWb = wbMod.parseWorldbook(wbJson, 'test.json');
+eq('解析出四条', parsedWb.entries.length, 4);
+eq('蓝灯默认开', parsedWb.entries[0].on, true);
+eq('绿灯默认关', parsedWb.entries[1].on, false);
+eq('关掉的蓝灯默认关', parsedWb.entries[2].on, false);
+eq('没名字的给个占位名', parsedWb.entries[3].name, '条目 4');
+eq('文件名记下来', parsedWb.name, 'test.json');
+
+// 只拼开着的
+const wbText = wbMod.buildWorldbookText({ worldbook: parsedWb });
+ok('拼了蓝灯那条', wbText.includes('这条是常驻的'));
+ok('没拼绿灯那条', !wbText.includes('这条要关键词才触发'));
+ok('没拼关掉的那条', !wbText.includes('这条被关掉了'));
+
+// 全关时返回空
+const allOff = { worldbook: { entries: parsedWb.entries.map((e) => ({ ...e, on: false })) } };
+eq('全关时为空串', wbMod.buildWorldbookText(allOff), '');
+
+// 字数上限
+const big = {
+  worldbook: {
+    entries: [{ name: 'x', content: '啊'.repeat(5000), on: true }],
+  },
+  worldbookChars: 1000,
+};
+const wbCut = wbMod.buildWorldbookText(big);
+ok('超预算被截断', wbCut.length < 1200, '实际 ' + wbCut.length);
+ok('截断带提示', wbCut.includes('余下部分略'));
+
+// 拼进资料段的位置：紧跟在 <世界规则与其他补充材料> 之后
+const matWithWb = buildMaterialContext({ ...ctx, worldbook: '这是导入的全局世界书' }, s);
+const ruleEnd = matWithWb.indexOf('</世界规则与其他补充材料>');
+const wbAt = matWithWb.indexOf('这是导入的全局世界书');
+ok('世界书在规则块之后', wbAt > ruleEnd && ruleEnd >= 0, `规则块结束 ${ruleEnd} / 世界书 ${wbAt}`);
+ok('世界书在过往事件之前', wbAt < matWithWb.indexOf('<过往事件>'));
+
+// 世界书统计
+const wbStat = wbMod.worldbookStats(parsedWb);
+eq('统计总数', wbStat.total, 4);
+eq('统计开着数', wbStat.on, 2);
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

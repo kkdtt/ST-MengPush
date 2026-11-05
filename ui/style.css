@@ -1605,3 +1605,57 @@ button.outline-item:last-child {
   background: rgba(185, 130, 160, 0.18);
   color: rgba(214, 160, 190, 0.95);
 }
+
+/* ---------------- 全局世界书 ---------------- */
+
+.wb-summary {
+  margin: 2px 0 6px;
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.wb-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  padding: 2px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.wb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.wb-row:hover {
+  background: var(--bg-2);
+}
+
+.wb-row input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.wb-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.wb-chars {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--fg-faint);
+}

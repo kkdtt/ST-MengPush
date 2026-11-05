@@ -1,5 +1,5 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.11.0';
-import { VERSION } from './version.js?v=2.11.0';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.12.0';
+import { VERSION } from './version.js?v=2.12.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -35,6 +35,18 @@ export function defaults() {
 
     /** 角色档案用哪套模板：'1' 详细（约 2000 token）/ '2' 精简（约 1300 token） */
     profileTemplate: '1',
+
+    /**
+     * 导入的全局世界书。entries 里每条只有 on/off 两态，
+     * 开着的会拼进资料段，位置在 <世界规则与其他补充材料> 之后。
+     */
+    worldbook: { name: '', at: 0, entries: [] },
+
+    /** 全局世界书拼进上下文时的字数预算 */
+    worldbookChars: 40000,
+
+    /** 任务前那条空 user 是否塞一个空格。某些网关不接受空 content 时打开 */
+    emptyUserPad: false,
 
     /** 一次介绍几个新人（上限 10） */
     introCount: 3,

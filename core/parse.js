@@ -9,7 +9,8 @@
  * 两种都要能读，所以提取一律带兜底。
  */
 
-import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.11.0';
+import { getChatVariable, getCharInfo, getVisibleMessages, getWorldInfo, readChatMeta } from './ctx.js?v=2.12.0';
+import { buildWorldbookText } from './worldbook.js?v=2.12.0';
 
 /** 取某个 <details> 块的内容，按 summary 文字匹配（「摘要」和「此刻」要分开）。 */
 export function extractDetails(text, keyword) {
@@ -189,6 +190,9 @@ export async function collectContext(settings) {
   // 有它就不再自己拼世界书/摘要——那份已经是主模型收到的原文，重复拼只会打架。
   const external = String(readChatMeta('meng_push_external_context') || '').trim();
 
+  // 导入的全局世界书（开着的条目拼成一段）
+  const worldbook = buildWorldbookText(settings);
+
   return {
     external,
     summaries,
@@ -236,6 +240,9 @@ export function buildSystemContext(ctx, settings) {
   if (ruleParts.length) {
     parts.push('<世界规则与其他补充材料>\n' + ruleParts.join('\n\n') + '\n</世界规则与其他补充材料>');
   }
+
+  // 导入的全局世界书：紧跟在「世界规则与其他补充材料」后面
+  if (ctx.worldbook) parts.push(ctx.worldbook);
 
   return parts.join('\n\n');
 }
