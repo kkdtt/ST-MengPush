@@ -9,13 +9,13 @@
  *   2. 结果按 messageId 缓存进 chatMetadata，切回来不重算，也不怕刷新丢。
  */
 
-import { completeWithRetry } from './api.js?v=2.20.1';
-import { readChatMeta, writeChatMeta } from './ctx.js?v=2.20.1';
-import { buildChatHistory, buildMaterialContext, buildMemoryContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.20.1';
-import { attachResult } from './inspect.js?v=2.20.1';
-import { buildTool, readToolArgs } from './tools.js?v=2.20.1';
-import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.20.1';
-import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.20.1';
+import { completeWithRetry } from './api.js?v=2.21.0';
+import { getChat, getLastMessageId, readChatMeta, writeChatMeta } from './ctx.js?v=2.21.0';
+import { buildChatHistory, buildMaterialContext, buildMemoryContext, buildRecentBodies, buildSystemContext, buildUserContext, collectContext, parseJSON } from './parse.js?v=2.21.0';
+import { attachResult } from './inspect.js?v=2.21.0';
+import { buildTool, readToolArgs } from './tools.js?v=2.21.0';
+import { buildBeats, buildChoices, buildDanmaku, buildIntro, buildMoves, buildOutline, buildProfile, buildSteps, getKernel, getPrompt } from './prompts.js?v=2.21.0';
+import { channelFor, channelReady, get as getSettings } from './settings.js?v=2.21.0';
 
 const CACHE_KEY = 'meng_push_cache';
 const HISTORY_KEY = 'meng_push_history';
@@ -33,6 +33,13 @@ const state = {
   story: null, // { keyword, scale, outline, moves, moveCount, busy }
   dream: null, // { messages: [{role, text, at, choices, danmaku}] }
   profile: null, // 最近一次生成的完整角色档案（纯文本）
+  /**
+   * 每个任务自己的状态：{ status, stage, error, at }。
+   *
+   * 之前所有任务共用一个 status，跑「走向」的时候「反派行动」的按钮也跟着转，
+   * 一个任务失败整页变红。现在各看各的，互不牵连。
+   */
+  tasks: {},
 };
 
 export function subscribe(fn) {
@@ -62,9 +69,40 @@ function loadCache() {
   return readChatMeta(CACHE_KEY) || {};
 }
 
-function saveResult(messageId, result) {
+/** 一层楼的空结果。合并时以它打底，老字段缺了也不会 undefined。 */
+function emptyResult(messageId) {
+  return {
+    choices: [],
+    danmaku: [],
+    beats: [],
+    moves: [],
+    intros: [],
+    notes: {},
+    at: 0,
+    messageId,
+  };
+}
+
+/**
+ * 把某个任务的结果并进这一层楼的缓存。
+ *
+ * 必须「读—改—写」在一步里做完：几个任务并发回来，
+ * 谁后写谁说了算，先读一份旧的再写回去会把别人刚写的结果盖掉。
+ */
+function commitResult(messageId, patch = {}, note) {
   const cache = loadCache();
-  cache[messageId] = result;
+  const prev = cache[messageId] || {};
+
+  const next = {
+    ...emptyResult(messageId),
+    ...prev,
+    ...patch,
+    notes: { ...(prev.notes || {}), ...(note ? { [note.key]: note.value } : {}) },
+    at: Date.now(),
+    messageId,
+  };
+
+  cache[messageId] = next;
 
   // 只保留最近 40 条，避免 chatMetadata 无限膨胀
   const ids = Object.keys(cache)
@@ -73,13 +111,31 @@ function saveResult(messageId, result) {
   while (ids.length > 40) delete cache[ids.shift()];
   writeChatMeta(CACHE_KEY, cache);
 
+  emit({ result: next, history: pushHistory(messageId, next) });
+  return next;
+}
+
+/** 往轮记录按楼层归并：同一层跑了几项，只留一条。 */
+function pushHistory(messageId, result) {
   const history = (readChatMeta(HISTORY_KEY) || []).slice();
-  history.push({ messageId, at: result.at, choices: result.choices, danmaku: result.danmaku });
+  const item = { messageId, at: result.at, choices: result.choices, danmaku: result.danmaku };
+  const at = history.findIndex((x) => x && x.messageId === messageId);
+  if (at >= 0) history[at] = { ...history[at], ...item };
+  else history.push(item);
+
   const limit = Math.max(4, getSettings().historyLimit || 24);
   while (history.length > limit) history.shift();
   writeChatMeta(HISTORY_KEY, history);
+  return history;
+}
 
-  emit({ history });
+/** 任务失败时只把提示挂上去，不写缓存——下次还能再跑一遍。 */
+function emitNote(messageId, key, value) {
+  const base =
+    state.result && state.result.messageId === messageId
+      ? state.result
+      : getCached(messageId) || emptyResult(messageId);
+  emit({ result: { ...base, notes: { ...(base.notes || {}), [key]: value }, messageId } });
 }
 
 export function getCached(messageId) {
@@ -293,9 +349,10 @@ function withToolHint(messages) {
 /* ---------------- 主流程 ---------------- */
 
 let currentAbort = null;
-let running = false;
-/** 每个任务自己的取消控制器：重跑「弹幕」不该顺手杀掉「走向」 */
+/** 每个任务自己的取消控制器：重跑「走向」不该顺手杀掉「反派行动」 */
 const taskAborts = new Map();
+/** 正在跑的东西：任务名或 story / dream / profile → { stage } */
+const runners = new Map();
 
 function signalFor(task, parentSignal) {
   taskAborts.get(task)?.abort();
@@ -306,30 +363,193 @@ function signalFor(task, parentSignal) {
 }
 
 /**
- * 跑一轮。
+ * 任务表：每个任务怎么拼提示词、怎么解析、结果落到哪个字段。
+ *
+ * 以前这些都散在 run() 的 if 分支里，加一个任务要改四处；
+ * 现在一张表说清楚，调度只负责「谁在跑、跑完怎么落」。
+ */
+const TASK_SPECS = {
+  choices: {
+    label: '走向',
+    stage: '生成中',
+    field: 'choices',
+    note: 'choices',
+    retries: (s) => s.retries,
+    build: (s) => buildChoices(s),
+    parse: (raw, s) => parseChoices(raw, s.choiceCount),
+  },
+  danmaku: {
+    label: '弹幕',
+    stage: '生成中',
+    field: 'danmaku',
+    note: 'danmaku',
+    retries: () => 0,
+    // 自动跑的时候按概率跳过，手动点必跑
+    gate: (s, opts) => !!opts.manual || Math.random() < (s.danmakuChance ?? 0.4),
+    build: (s) => buildDanmaku(s),
+    parse: (raw) => parseDanmaku(raw),
+  },
+  moves: {
+    label: '反派行动',
+    stage: '有人要动手了',
+    field: 'moves',
+    note: 'moves',
+    retries: () => 0,
+    build: (s) => buildMoves(s, { count: s.moveCount || 4 }),
+    parse: (raw) => parseMoves(raw),
+  },
+  intro: {
+    label: '新人',
+    // 上限 10：再多模型就开始灌水，每个人只剩两句话
+    stage: (s) => `在想 ${Math.min(10, Math.max(1, Number(s.introCount) || 3))} 个新人`,
+    field: 'intros',
+    note: 'intro',
+    retries: () => 0,
+    build: (s) => buildIntro(s, { count: Math.min(10, Math.max(1, Number(s.introCount) || 3)) }),
+    parse: (raw) => parseIntros(raw),
+  },
+  beats: {
+    label: '节拍',
+    stage: '排节拍',
+    field: 'beats',
+    note: 'beats',
+    retries: () => 0,
+    build: (s) => buildBeats(s),
+    parse: (raw) => parseBeats(raw),
+  },
+};
+
+/** 自动跑哪几项：只看设置里勾了哪些，跟当前打开哪一页无关。 */
+export function autoTasks(settings = getSettings()) {
+  const mod = settings.modules || {};
+  const out = [];
+  if (mod.choices !== false) out.push('choices');
+  if (mod.moves === true) out.push('moves');
+  if (mod.intro === true) out.push('intro');
+  if (mod.danmaku === true) out.push('danmaku');
+  return out;
+}
+
+/* ---------------- 状态 ---------------- */
+
+function syncStatus() {
+  const list = [...runners.values()];
+  if (list.length) {
+    emit({ status: 'running', stage: list.map((r) => r.stage).filter(Boolean).join(' · ') });
+  } else if (state.status === 'running') {
+    emit({ status: 'idle', stage: '' });
+  }
+}
+
+function startRunner(key, stage = '') {
+  runners.set(key, { stage });
+  emit({ status: 'running', stage, error: '' });
+}
+
+function setRunnerStage(key, stage) {
+  const r = runners.get(key);
+  if (!r) return;
+  r.stage = stage;
+  syncStatus();
+}
+
+function endRunner(key) {
+  runners.delete(key);
+  syncStatus();
+}
+
+function emitTask(task, patch) {
+  const prev = state.tasks[task] || { status: 'idle', stage: '', error: '', at: 0 };
+  emit({ tasks: { ...state.tasks, [task]: { ...prev, ...patch } } });
+}
+
+/**
+ * 跑一个任务。
+ *
+ * 各跑各的：自己的取消控制器、自己的状态、自己的错误。
+ * 一个任务挂了只在自己那页显示，不牵连别的，也不改全局 error。
+ */
+async function runTask(task, opts = {}) {
+  const spec = TASK_SPECS[task];
+  if (!spec) throw new Error('未知任务：' + task);
+
+  const settings = getSettings();
+  const ch = channelFor(task);
+  if (!channelReady(ch)) {
+    emitTask(task, { status: 'error', stage: '', error: '先去设置里配一个渠道（地址 + 模型名）' });
+    return;
+  }
+
+  if (spec.gate && !spec.gate(settings, opts)) {
+    emitNote(getLastMessageId(), spec.note, 'skipped');
+    return;
+  }
+
+  // 同一任务重跑：先掐掉上一次，免得两个结果互相覆盖
+  taskAborts.get(task)?.abort();
+  const ctrl = new AbortController();
+  taskAborts.set(task, ctrl);
+
+  const stage = typeof spec.stage === 'function' ? spec.stage(settings) : spec.stage;
+  startRunner(task, stage);
+  emitTask(task, { status: 'running', stage, error: '' });
+
+  /**
+   * 这一跑还是不是当前这一跑。
+   *
+   * 同一个任务被重跑时，旧的请求要等一拍才会 reject；
+   * 那一拍里新的一跑已经登记好了，旧的不许再改状态、不许再写结果，
+   * 否则界面刚显示「生成中」，又被旧的置回「待命」。
+   */
+  const owns = () => taskAborts.get(task) === ctrl;
+
+  let id = getLastMessageId();
+
+  try {
+    // 上下文几个任务共用一份（run() 里采过一次就传进来），单独跑才自己采
+    const ctx = opts.ctx || (await collectContext(settings));
+    const material = opts.material !== undefined ? opts.material : buildMaterialContext(ctx, settings);
+    id = ctx.lastBodyId;
+
+    const res = await callTask(
+      ch,
+      task,
+      assembleMessages(settings, material, spec.build(settings), ctx),
+      { signal: ctrl.signal, retries: spec.retries(settings), stream: false },
+      settings,
+    );
+
+    if (!owns()) return;
+
+    const list = spec.parse(res.args || res.content, settings);
+    commitResult(id, { [spec.field]: list }, { key: spec.note, value: list.length ? '' : 'empty' });
+    emitTask(task, { status: 'idle', stage: '', error: '', at: Date.now() });
+  } catch (e) {
+    if (!owns()) return;
+    if (ctrl.signal.aborted) {
+      emitTask(task, { status: 'idle', stage: '', error: '' });
+      emitNote(id, spec.note, 'cancelled');
+    } else {
+      const msg = e?.message || String(e);
+      console.warn(`[推进台] ${spec.label}失败`, e);
+      emitTask(task, { status: 'error', stage: '', error: msg });
+      emitNote(id, spec.note, 'error:' + msg);
+    }
+  } finally {
+    if (owns()) {
+      taskAborts.delete(task);
+      endRunner(task);
+    }
+  }
+}
+
+/**
+ * 跑一组任务。
  * @param {{tasks?: string[], manual?: boolean}} opts
  *   tasks 不传时按设置里的开关走；传了就只跑这几项，其余保留上次的结果。
  */
 export async function run(opts = {}) {
   const settings = getSettings();
-  const ctx = await collectContext(settings);
-
-  // 只重刷某一项时，其余项保留上一次的结果，不要清空
-  const prev = getCached(ctx.lastBodyId) || {};
-  const result = {
-    choices: Array.isArray(prev.choices) ? prev.choices : [],
-    danmaku: Array.isArray(prev.danmaku) ? prev.danmaku : [],
-    beats: Array.isArray(prev.beats) ? prev.beats : [],
-    moves: Array.isArray(prev.moves) ? prev.moves : [],
-    intros: Array.isArray(prev.intros) ? prev.intros : [],
-    notes: { ...(prev.notes || {}) },
-    at: Date.now(),
-    messageId: ctx.lastBodyId,
-  };
-
-  const tasks = opts.tasks
-    ? opts.tasks.slice()
-    : ['choices', 'beats', 'moves', 'intro'].filter((t) => settings.modules[t]);
 
   const ch = channelFor('choices');
   if (!channelReady(ch)) {
@@ -337,191 +557,51 @@ export async function run(opts = {}) {
     return;
   }
 
-  // 每个任务可以单独指定渠道；没配就跟着走向走
-  const movesCh = channelFor('moves') || ch;
-  const introCh = channelFor('intro') || ch;
+  const tasks = (opts.tasks && opts.tasks.length ? opts.tasks : autoTasks(settings)).filter(
+    (t) => TASK_SPECS[t],
+  );
+  if (!tasks.length) return;
 
-  // 不再无条件取消上一轮：切页面、切模式、单独重跑某一项时，
-  // 别的任务不该被牵连。同任务的重复触发由下面按任务名去重。
-  const abort = new AbortController();
-  currentAbort = abort;
-  running = true;
-
-  emit({ status: 'running', stage: '整理上下文', error: '', result: { ...result } });
-
-  // 资料段：世界书 + 角色卡 + 背景 + 大总结 + 更早的摘要
+  // 上下文只采一次（世界书扫描不便宜），几个任务共用；之后各自并发，互不等待
+  let ctx;
+  try {
+    ctx = await collectContext(settings);
+  } catch (e) {
+    emit({ status: 'error', stage: '', error: '采集上下文失败：' + (e?.message || e) });
+    return;
+  }
   const material = buildMaterialContext(ctx, settings);
 
-  try {
-    // 走向和弹幕并发：谁先回来谁先渲染，不用互相等。
-    // 两个任务通常走同一个渠道，所以不再额外拆渠道并发，避免撞限流。
-    const jobs = [];
-    let choiceError = null;
-
-    if (tasks.includes('choices')) {
-      jobs.push(
-        (async () => {
-          emit({ stage: '生成中' });
-          try {
-            const res = await callTask(
-              ch,
-              'choices',
-              assembleMessages(settings, material, buildChoices(settings), ctx),
-              { signal: signalFor('choices', abort.signal), retries: settings.retries, stream: false },
-              settings,
-            );
-            result.choices = parseChoices(res.args || res.content, settings.choiceCount);
-            result.notes.choices = result.choices.length ? '' : 'empty';
-          } catch (e) {
-            result.notes.choices = 'error:' + (e?.message || e);
-            choiceError = e;
-          } finally {
-            emit({ result: { ...result }, stage: '' });
-          }
-        })(),
-      );
-    }
-
-    if (tasks.includes('danmaku') && !abort.signal.aborted) {
-      const shouldRun = opts.manual || Math.random() < (settings.danmakuChance ?? 0.4);
-      if (shouldRun) {
-        jobs.push(
-          (async () => {
-            emit({ stage: '生成中' });
-            try {
-              const dmCh = channelFor('danmaku') || ch;
-              const res = await callTask(
-                dmCh,
-                'danmaku',
-                assembleMessages(settings, material, buildDanmaku(settings), ctx),
-                { signal: signalFor('danmaku', abort.signal), retries: 0, stream: false },
-                settings,
-              );
-              result.danmaku = parseDanmaku(res.args || res.content);
-              result.notes.danmaku = result.danmaku.length ? '' : 'empty';
-            } catch (e) {
-              result.danmaku = [];
-              result.notes.danmaku = 'error:' + (e?.message || e);
-              console.warn('[推进台] 弹幕生成失败', e);
-            } finally {
-              emit({ result: { ...result }, stage: '' });
-            }
-          })(),
-        );
-      } else {
-        result.notes.danmaku = 'skipped';
-      }
-    }
-
-    /* ---- 反派行动（走向页的另一个模式，与走向互斥） ---- */
-    if (tasks.includes('moves') && !abort.signal.aborted) {
-      jobs.push(
-        (async () => {
-          emit({ stage: '有人要动手了' });
-          try {
-            const res = await callTask(
-              movesCh,
-              'moves',
-              assembleMessages(settings, material, buildMoves(settings, { count: settings.moveCount || 4 }), ctx),
-              { signal: signalFor('moves', abort.signal), retries: 0, stream: false },
-              settings,
-            );
-            result.moves = parseMoves(res.args || res.content);
-            result.notes.moves = result.moves.length ? '' : 'empty';
-          } catch (e) {
-            result.moves = [];
-            result.notes.moves = 'error:' + (e?.message || e);
-            console.warn('[推进台] 反派行动生成失败', e);
-          } finally {
-            emit({ result: { ...result }, stage: '' });
-          }
-        })(),
-      );
-    }
-
-    /* ---- 新人介绍 ---- */
-    if (tasks.includes('intro') && !abort.signal.aborted) {
-      jobs.push(
-        (async () => {
-          // 上限 10：再多模型就开始灌水，每个人只剩两句话
-          const count = Math.min(10, Math.max(1, Number(settings.introCount) || 3));
-          emit({ stage: `在想 ${count} 个新人` });
-          try {
-            const res = await callTask(
-              introCh || ch,
-              'intro',
-              assembleMessages(settings, material, buildIntro(settings, { count }), ctx),
-              { signal: signalFor('intro', abort.signal), retries: 0, stream: false },
-              settings,
-            );
-            result.intros = parseIntros(res.args || res.content);
-            result.notes.intro = result.intros.length ? '' : 'empty';
-          } catch (e) {
-            result.intros = [];
-            result.notes.intro = 'error:' + (e?.message || e);
-            console.warn('[推进台] 新人介绍失败', e);
-          } finally {
-            emit({ result: { ...result }, stage: '' });
-          }
-        })(),
-      );
-    }
-
-    if (tasks.includes('beats') && !abort.signal.aborted) {
-      jobs.push(
-        (async () => {
-          emit({ stage: '排节拍' });
-          try {
-            const btCh = channelFor('beats') || ch;
-            const res = await callTask(
-              btCh,
-              'beats',
-              assembleMessages(settings, material, buildBeats(settings), ctx),
-              { signal: signalFor('beats', abort.signal), retries: 0, stream: false },
-              settings,
-            );
-            result.beats = parseBeats(res.args || res.content);
-            result.notes.beats = result.beats.length ? '' : 'empty';
-          } catch (e) {
-            result.notes.beats = 'error:' + (e?.message || e);
-            console.warn('[推进台] 节拍表生成失败', e);
-          } finally {
-            emit({ result: { ...result }, stage: '' });
-          }
-        })(),
-      );
-    }
-
-    await Promise.all(jobs);
-
-    // 走向是主菜，它挂了才算这一轮失败；弹幕/节拍挂了只在自己那页显示
-    if (choiceError) throw choiceError;
-
-    if (result.messageId >= 0) saveResult(result.messageId, result);
-    emit({ status: 'idle', stage: '', result });
-  } catch (e) {
-    if (abort.signal.aborted) {
-      emit({ status: 'idle', stage: '', error: '已取消' });
-    } else {
-      console.error('[推进台]', e);
-      emit({ status: 'error', stage: '', error: e?.message || String(e), result });
-    }
-  } finally {
-    running = false;
-    if (currentAbort === abort) currentAbort = null;
-  }
+  await Promise.all(tasks.map((t) => runTask(t, { ...opts, ctx, material })));
 }
 
 export function cancel() {
+  const ctrls = [...taskAborts.values()];
+  taskAborts.clear();
+  for (const c of ctrls) {
+    try {
+      c.abort();
+    } catch {
+      /* 已经结束了 */
+    }
+  }
   currentAbort?.abort();
+
+  // 控制器已经摘掉，被取消的那几跑回来也认不出自己了，这里一次性收干净
+  runners.clear();
+  const tasks = {};
+  for (const [k, v] of Object.entries(state.tasks)) {
+    tasks[k] = { ...v, status: 'idle', stage: '' };
+  }
+  emit({ tasks, status: 'idle', stage: '', error: '' });
 }
 
 export function isRunning() {
-  return running;
+  return runners.size > 0;
 }
 
 /**
- * 直接跑一项，不改动其他项。面板上的「重刷弹幕」「排节拍」都走这里。
+ * 直接跑一项，不改动其他项。面板上每个页面自己的按钮都走这里。
  */
 export function runOne(task) {
   return run({ manual: true, tasks: [task] });
@@ -745,34 +825,111 @@ function finishChoices(out, limit) {
 
 /* ---------------- 自动触发 ---------------- */
 
-let lastAutoId = -1;
-
 /**
- * 生成结束时被调用。同一个 messageId 只处理一次，
- * 否则 swipes / 重绘会重复触发。
+ * 自动任务只在「酒馆正文这一版真的写完了」之后跑。
+ *
+ * 判据是捕获到主对话请求的响应体读完（inspect.js 那层 fetch hook 报上来的）。
+ * 插件自己发的请求带 self 标记，不算——不然自己跑一次走向，
+ * 就会被当成「正文写完了」再触发一轮，越跑越多。
+ *
+ * 光有请求结束还不够：那一刻 ST 还在解析，chat 数组里还没有新楼层，
+ * 采到的上下文仍是上一轮的。所以要等楼层真的变了再跑。
+ *
+ * 等不到也不无限等——超时就按已经落盘的内容跑一次。
  */
-export function onGenerationEnded(messageId) {
+let lastAutoId = -1;
+let autoToken = 0;
+let autoTimer = null;
+let lastCaptureAt = 0;
+
+/** 楼层快照：楼层数、最后一层是谁、最后一层多长。任一变化都算「落盘了」。 */
+function snapshotChat() {
+  const chat = getChat();
+  const last = chat[chat.length - 1];
+  return {
+    len: chat.length,
+    lastLen: last ? String(last.mes || '').length : -1,
+  };
+}
+
+function armAuto({ waitCommit }) {
+  if (!getSettings().auto) return;
+
+  const token = ++autoToken;
+  const base = snapshotChat();
+  const delay = Math.max(120, Number(getSettings().autoDelay) || 700);
+  const deadline = Date.now() + 8000;
+
+  clearTimeout(autoTimer);
+
+  const tick = () => {
+    if (token !== autoToken) return; // 期间又来了新一轮，这一轮作废
+    if (!getSettings().auto) return;
+
+    if (!waitCommit) {
+      fireAuto();
+      return;
+    }
+
+    const cur = snapshotChat();
+    const committed = cur.len !== base.len || cur.lastLen !== base.lastLen;
+    if (committed || Date.now() > deadline) {
+      fireAuto();
+      return;
+    }
+    autoTimer = setTimeout(tick, 100);
+  };
+
+  autoTimer = setTimeout(tick, delay);
+}
+
+function fireAuto() {
   const settings = getSettings();
   if (!settings.auto) return;
 
-  const id = typeof messageId === 'number' ? messageId : -1;
-  if (id < 0 || id === lastAutoId) return;
+  const id = getLastMessageId();
+  if (id < 0) return;
+
+  // 同一层楼只自动跑一次：swipe、重绘、切回来都不再重复
+  if (id === lastAutoId) return;
   lastAutoId = id;
 
+  // 这一层已经算过了就不再花钱，直接把结果摆出来
   const cached = getCached(id);
   if (cached) {
-    emit({ result: cached, status: 'idle', stage: '', error: '' });
+    emit({ result: cached });
     return;
   }
 
-  setTimeout(() => {
-    if (lastAutoId !== id) return; // 期间又生成了新的，放弃这轮
-    void run({ manual: false });
-  }, Math.max(200, settings.autoDelay || 700));
+  const tasks = autoTasks(settings);
+  if (!tasks.length) return;
+
+  void run({ manual: false, tasks }).catch((e) => console.warn('[推进台] 自动任务失败', e));
 }
 
+/**
+ * 捕获层报到：主对话这一版正文写完了（不含插件自己的请求）。
+ */
+export function onMainBodyCaptured() {
+  lastCaptureAt = Date.now();
+  armAuto({ waitCommit: true });
+}
+
+/**
+ * ST 的生成结束事件。只在捕获层没工作时兜底——
+ * 有些后端（非 chat-completions）不走那个端点，抓不到。
+ */
+export function onGenerationEnded() {
+  if (Date.now() - lastCaptureAt < 8000) return;
+  armAuto({ waitCommit: false });
+}
+
+/** 换聊天、换 swipe：把排着的那一轮取消掉，别让它跑在错的地方。 */
 export function resetAutoGuard() {
+  autoToken++;
+  clearTimeout(autoTimer);
   lastAutoId = -1;
+  lastCaptureAt = 0;
 }
 
 /* ---------------- 剧情创作 ---------------- */
@@ -935,7 +1092,7 @@ export async function runStory(action, params = {}) {
   const abort = new AbortController();
   currentAbort = abort;
 
-  emit({ status: 'running', stage: action === 'outline' ? '排大纲' : '拆步骤', error: '' });
+  startRunner('story', action === 'outline' ? '排大纲' : '拆步骤');
 
   try {
     const ctx = await collectContext(settings);
@@ -1013,6 +1170,7 @@ export async function runStory(action, params = {}) {
     }
   } finally {
     if (currentAbort === abort) currentAbort = null;
+    endRunner('story');
   }
 }
 
@@ -1032,7 +1190,8 @@ export async function runProfile(target) {
 
   const abort = new AbortController();
   currentAbort = abort;
-  emit({ status: 'running', stage: '写档案', error: '', profile: null });
+  startRunner('profile', '写档案');
+  emit({ profile: null });
 
   try {
     const ctx = await collectContext(settings);
@@ -1073,6 +1232,7 @@ export async function runProfile(target) {
     }
   } finally {
     if (currentAbort === abort) currentAbort = null;
+    endRunner('profile');
   }
 }
 
@@ -1308,11 +1468,12 @@ export async function runDream(input) {
   const pending = resend
     ? { ...dream }
     : { ...dream, messages: [...dream.messages, { role: 'user', text, at: Date.now() }] };
-  emit({ dream: pending, status: 'running', stage: '弥彦在想', error: '' });
+  emit({ dream: pending });
 
   currentAbort?.abort();
   const abort = new AbortController();
   currentAbort = abort;
+  startRunner('dream', '弥彦在想');
 
   try {
     const ctx = await collectContext(settings);
@@ -1370,7 +1531,7 @@ export async function runDream(input) {
       let guard = 0;
       while (fin === 'length' && guard < 2 && !abort.signal.aborted) {
         guard++;
-        emit({ stage: `续写 ${guard}` });
+        setRunnerStage('dream', `续写 ${guard}`);
         try {
           const cont = await completeWithRetry(
             ch,
@@ -1417,5 +1578,6 @@ export async function runDream(input) {
     }
   } finally {
     if (currentAbort === abort) currentAbort = null;
+    endRunner('dream');
   }
 }

@@ -5,7 +5,7 @@
  * 设置页只建一次（有输入框，重建会丢焦点）。
  */
 
-import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.20.1';
+import { fillInput, readChatMeta, writeChatMeta } from '../core/ctx.js?v=2.21.0';
 import {
   cancel,
   clearHistory,
@@ -18,21 +18,19 @@ import {
   getStory,
   isRunning,
   loadHistory,
-  loadStory,
   previewMessages,
-  run,
   runOne,
   runProfile,
   runDream,
   runStory,
   subscribe,
-} from '../core/engine.js?v=2.20.1';
-import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.20.1';
-import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.20.1';
-import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.20.1';
-import { clearRecords, getRecords } from '../core/inspect.js?v=2.20.1';
-import { testChannel } from '../core/api.js?v=2.20.1';
-import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.20.1';
+} from '../core/engine.js?v=2.21.0';
+import { exportConfig, get as getSettings, importConfig, newChannel, patch as patchSettings } from '../core/settings.js?v=2.21.0';
+import { PROMPT_FIELDS, getDefault, getPrompt, isCustomized } from '../core/prompts.js?v=2.21.0';
+import { parseWorldbook, worldbookStats } from '../core/worldbook.js?v=2.21.0';
+import { clearRecords, getRecords } from '../core/inspect.js?v=2.21.0';
+import { testChannel } from '../core/api.js?v=2.21.0';
+import { clear, h, icon, keepInViewport, makeDraggable } from './host.js?v=2.21.0';
 
 /**
  * 顶层三组：自动 / 手动 / 设置。
@@ -45,7 +43,7 @@ const GROUPS = [
   {
     id: 'auto',
     label: '自动',
-    icon: 'refresh',
+    icon: 'play',
     items: [
       { id: 'choices', label: '走向', icon: 'branch' },
       { id: 'intro', label: '新人', icon: 'user' },
@@ -142,24 +140,20 @@ export function createPanel(shadow) {
   const tabsEl = h('div', { class: 'tabs', role: 'tablist' });
   const subTabsEl = h('div', { class: 'subtabs' });
 
-  const refreshBtn = h(
-    'button',
-    { class: 'icon-btn', title: '重跑这一轮（Alt+R）', onclick: () => trigger('refresh') },
-    [icon('refresh')],
-  );
-
   const collapseBtn = h(
     'button',
     { class: 'icon-btn', title: '收起', onclick: () => setCollapsed(true) },
     [icon('close')],
   );
 
+  // 顶栏只留开合。以前那个「重跑这一轮」是一次性把所有任务一起重发，
+  // 现在每个功能在自己的页面里各自有一个按钮，顶栏这个就撤掉了。
   const headEl = h('div', { class: 'head' }, [
     h('div', { class: 'brand' }, [
       icon('brand', 15),
       h('span', { class: 'brand-name', text: '推 进 台' }),
     ]),
-    h('div', { class: 'tools' }, [refreshBtn, collapseBtn]),
+    h('div', { class: 'tools' }, [collapseBtn]),
   ]);
 
   const panelEl = h('div', { class: 'panel', role: 'dialog', 'aria-label': '剧情推进台' }, [
@@ -371,14 +365,28 @@ export function createPanel(shadow) {
 
 
 
-  /* ---------------- 触发 ---------------- */
+  /* ---------------- 每个任务自己的状态 ---------------- */
 
-  function trigger(kind) {
-    if (kind === 'refresh') {
-      void run({ manual: true, tasks: ['choices', ...(getSettings().modules.danmaku ? ['danmaku'] : [])] });
-    } else if (kind === 'beats') {
-      void run({ manual: true, tasks: ['beats'] });
-    }
+  /**
+   * 各功能各跑各的：一项在转，别的页面的按钮照常能点。
+   * 之前共用一个 running 标志，跑「走向」的时候「节拍」的按钮也是灰的，
+   * 一个任务失败整页变红。
+   */
+  function taskState(task) {
+    return getState().tasks?.[task] || { status: 'idle', stage: '', error: '', at: 0 };
+  }
+
+  function busy(task) {
+    return taskState(task).status === 'running';
+  }
+
+  function anyBusy() {
+    return Object.values(getState().tasks || {}).some((t) => t?.status === 'running');
+  }
+
+  function taskErrorBox(task) {
+    const t = taskState(task);
+    return t.status === 'error' && t.error ? h('div', { class: 'error-box', text: t.error }) : null;
   }
 
   /* ---------------- 渲染：标签 ---------------- */
@@ -493,6 +501,12 @@ export function createPanel(shadow) {
       bodyEl.appendChild(h('div', { style: { height: '10px' } }));
     }
 
+    // 每个任务的错误只在自己那页显示，不影响别的页面
+    if (activeTab === 'intro' || activeTab === 'beats') {
+      const err = taskErrorBox(activeTab);
+      if (err) bodyEl.appendChild(err);
+    }
+
     if (activeTab === 'choices') renderChoices(state);
     else if (activeTab === 'intro') renderIntro(state);
     else if (activeTab === 'beats') renderBeats(state);
@@ -519,14 +533,16 @@ export function createPanel(shadow) {
           class: isMoves ? 'on' : '',
           text: '反派行动',
           onclick: () => {
+            // 只切视图，不发请求——要看就自己点「再想一批」
             patchSettings({ panel: { ...getSettings().panel, choiceMode: 'moves' } });
-            const has = (getState().result?.moves || []).length;
-            if (!has) void run({ manual: true, tasks: ['moves'] });
-            else render(getState());
+            render(getState());
           },
         }),
       ]),
     );
+
+    const err = taskErrorBox(isMoves ? 'moves' : 'choices');
+    if (err) bodyEl.appendChild(err);
 
     if (isMoves) {
       renderMoves(state);
@@ -537,7 +553,7 @@ export function createPanel(shadow) {
 
     if (!list.length) {
       bodyEl.appendChild(
-        emptyWithNote(state, state.result?.notes?.choices || '', 'choices', {
+        emptyWithNote(state.result?.notes?.choices || '', 'choices', {
           running: '正在想下一步……',
           empty: '模型没给出可用的走向',
           idle: '这一轮还没有走向',
@@ -579,8 +595,9 @@ export function createPanel(shadow) {
       h('div', { class: 'note-row' }, [
         h('button', {
           class: 'mini-btn',
-          text: '重跑',
-          disabled: state.status === 'running',
+          text: busy('choices') ? '生成中…' : '重跑走向',
+          title: '只重跑走向，不动其他功能',
+          disabled: busy('choices'),
           onclick: () => runOne('choices'),
         }),
       ]),
@@ -591,10 +608,10 @@ export function createPanel(shadow) {
    * 空态。关键是要说清楚「为什么空」——
    * 上一版把失败静默吞掉，面板上什么都不显示，用户根本分不清是没触发还是请求挂了。
    */
-  function emptyWithNote(state, note, task, texts) {
+  function emptyWithNote(note, task, texts) {
     const wrap = h('div', { class: 'empty' });
 
-    if (state.status === 'running') {
+    if (busy(task)) {
       wrap.appendChild(document.createTextNode(texts.running || '生成中……'));
       return wrap;
     }
@@ -625,7 +642,7 @@ export function createPanel(shadow) {
 
     if (!list.length) {
       bodyEl.appendChild(
-        emptyWithNote(state, note, 'moves', {
+        emptyWithNote(note, 'moves', {
           running: '在想要谁动手……',
           empty: '模型没给出可用的行动',
           idle: '还没有反派行动',
@@ -666,8 +683,9 @@ export function createPanel(shadow) {
       h('div', { class: 'note-row' }, [
         h('button', {
           class: 'mini-btn',
-          text: '再想一批',
-          disabled: state.status === 'running',
+          text: busy('moves') ? '在想…' : '再想一批',
+          title: '只重跑反派行动，不动其他功能',
+          disabled: busy('moves'),
           onclick: () => runOne('moves'),
         }),
       ]),
@@ -677,7 +695,8 @@ export function createPanel(shadow) {
   function renderIntro(state) {
     const list = state.result?.intros || [];
     const note = state.result?.notes?.intro || '';
-    const running = state.status === 'running';
+    const running = busy('intro');
+    const profiling = busy('profile');
     const s = getSettings();
 
     // 顶部控制条常驻：数量 + 换一批，空态也能操作
@@ -699,7 +718,8 @@ export function createPanel(shadow) {
         cntSel,
         h('button', {
           class: 'mini-btn',
-          text: list.length ? '换一批' : '抽新人',
+          text: running ? '在想…' : list.length ? '换一批' : '抽新人',
+          title: '只重跑新人，不动其他功能',
           disabled: running,
           onclick: () => runOne('intro'),
         }),
@@ -708,7 +728,7 @@ export function createPanel(shadow) {
 
     if (!list.length) {
       bodyEl.appendChild(
-        emptyWithNote(state, note, 'intro', {
+        emptyWithNote(note, 'intro', {
           running: '在想新人……',
           empty: '模型没给出可用的人',
           idle: '还没有新人，点上面抽一批',
@@ -756,8 +776,8 @@ export function createPanel(shadow) {
           oneTpl,
           h('button', {
             class: 'mini-btn primary',
-            text: '写档案',
-            disabled: running,
+            text: profiling ? '写着…' : '写档案',
+            disabled: profiling,
             onclick: () => runProfile({ ...it, template: oneTpl.value }),
           }),
         ]),
@@ -793,7 +813,7 @@ export function createPanel(shadow) {
 
     if (!list.length) {
       bodyEl.appendChild(
-        emptyWithNote(state, state.result?.notes?.beats || '', 'beats', {
+        emptyWithNote(state.result?.notes?.beats || '', 'beats', {
           running: '在排节拍……',
           empty: '模型没给出可用的节拍',
           idle: '还没有节拍表',
@@ -821,8 +841,9 @@ export function createPanel(shadow) {
       h('div', { class: 'note-row' }, [
         h('button', {
           class: 'mini-btn',
-          text: '重排',
-          disabled: state.status === 'running',
+          text: busy('beats') ? '排着…' : '重排',
+          title: '只重排节拍，不动其他功能',
+          disabled: busy('beats'),
           onclick: () => runOne('beats'),
         }),
       ]),
@@ -873,7 +894,7 @@ export function createPanel(shadow) {
 
   /** 按钮状态跟着输入框和最后一条走 */
   function syncSendBtn() {
-    const running = getState().status === 'running';
+    const running = busy('dream');
     const hasText = !!dreamInput.value.trim();
     const resend = !hasText && lastIsUser();
 
@@ -898,7 +919,7 @@ export function createPanel(shadow) {
     }
 
     const d = state.dream || getDream();
-    const running = state.status === 'running';
+    const running = busy('dream');
     syncSendBtn();
 
     clear(dreamLog);
@@ -1076,7 +1097,7 @@ export function createPanel(shadow) {
 
   function renderStory(state) {
     const story = getStory() || {};
-    const running = state.status === 'running';
+    const running = busy('story');
 
     // 输入区常驻：只在它不在 DOM 里时挂回去，避免每次状态变化都把正在打的字冲掉
     if (!bodyEl.contains(storyInput)) {
@@ -1279,15 +1300,11 @@ export function createPanel(shadow) {
     statusOverride = null;
     applyStatus(state);
 
-    const running = state.status === 'running';
-    refreshBtn.disabled = running;
-    refreshBtn.classList.toggle('spin', running);
-
     // 底栏只显示状态，重跑按钮下放到各页面，各跑各的
     clear(footEl);
     footEl.appendChild(statusEl);
 
-    if (running) {
+    if (anyBusy()) {
       footEl.appendChild(
         h('button', {
           class: 'mini-btn',
@@ -1402,6 +1419,15 @@ export function createPanel(shadow) {
     );
     g1.appendChild(
       switchRow('自动跑新人', s.modules.intro, (v) => patchSettings({ modules: { intro: v } })),
+    );
+    g1.appendChild(
+      h('div', {
+        class: 'prompt-hint',
+        text:
+          '只在「酒馆正文这一版真的写完」之后跑：捕获到主对话请求的响应读完、新楼层进了聊天，才算数。' +
+          '推进台自己发的请求不算，换 swipe、切页面也不会重复跑，同一层楼只自动跑一次。' +
+          '勾上的几项各自并发，互不等待；每个功能在自己页面里还有按钮，随时可以单独点。',
+      }),
     );
     box.appendChild(g1);
 

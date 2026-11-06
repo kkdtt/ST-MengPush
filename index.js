@@ -6,12 +6,12 @@
  *   等 ST 上下文就绪 → 挂 shadow host → 建面板 → 订阅事件
  */
 
-import { getCtx, on, eventTypes } from './core/ctx.js?v=2.20.1';
-import { loadHistory, onGenerationEnded, resetAutoGuard } from './core/engine.js?v=2.20.1';
-import { get as getSettings, invalidate as invalidateSettings, load as loadSettings } from './core/settings.js?v=2.20.1';
-import { install as installInspector } from './core/inspect.js?v=2.20.1';
-import { mountHost, syncTheme } from './ui/host.js?v=2.20.1';
-import { createPanel } from './ui/panel.js?v=2.20.1';
+import { getCtx, on, eventTypes } from './core/ctx.js?v=2.21.0';
+import { loadHistory, onGenerationEnded, onMainBodyCaptured, resetAutoGuard } from './core/engine.js?v=2.21.0';
+import { get as getSettings, invalidate as invalidateSettings, load as loadSettings } from './core/settings.js?v=2.21.0';
+import { install as installInspector, onMainResponseEnd } from './core/inspect.js?v=2.21.0';
+import { mountHost, syncTheme } from './ui/host.js?v=2.21.0';
+import { createPanel } from './ui/panel.js?v=2.21.0';
 
 const TAG = '[推进台]';
 
@@ -74,13 +74,17 @@ function bindStEvents() {
   };
 
   const onSwiped = () => {
-    // 换 swipe 等于换了一版正文，之前的选项作废
+    // 换 swipe 等于换了一版正文，排着的那一轮作废
     resetAutoGuard();
   };
 
   if (et.GENERATION_ENDED) unbinds.push(on(et.GENERATION_ENDED, onEnded));
   if (et.CHAT_CHANGED) unbinds.push(on(et.CHAT_CHANGED, onChatChanged));
   if (et.MESSAGE_SWIPED) unbinds.push(on(et.MESSAGE_SWIPED, onSwiped));
+
+  // 自动任务的主信号：捕获到主对话请求的响应体读完。
+  // 插件自己发的请求带 self 标记，这一层不会报上来。
+  unbinds.push(onMainResponseEnd(() => onMainBodyCaptured()));
 
   // 主题切换时重新探测
   unbinds.push(
@@ -98,20 +102,13 @@ function bindHotkeys() {
   const handler = (e) => {
     if (!e.altKey || e.ctrlKey || e.metaKey) return;
 
-    const tag = document.activeElement?.tagName;
-    const typing = tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable;
-
     const key = String(e.key || '').toLowerCase();
     const hot = (getSettings().hotkey || 'p').toLowerCase();
 
+    // 只有开合面板一个快捷键：各功能各自有按钮，不再有「一键全刷」
     if (key === hot) {
       e.preventDefault();
       panel?.toggle();
-      return;
-    }
-    if (key === 'r' && !typing) {
-      e.preventDefault();
-      document.querySelector('#meng-push-host')?.shadowRoot?.querySelector('.mini-btn.primary')?.click();
     }
   };
 

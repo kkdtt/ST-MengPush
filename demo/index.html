@@ -198,6 +198,12 @@ friction: 谁都没提刚才那声关门
     };
   };
 
+  /* 演示用：手动触发一次「正文写完了」。
+     自动任务只认这个信号（捕获到主对话响应结束），不再有顶栏的总刷新按钮。 */
+  window.__demoGenerateEnd = (messageId = chat.length - 1) => {
+    (listeners.generation_ended || []).forEach((fn) => fn(messageId));
+  };
+
   /* 预置一个渠道，省得演示时还要填表单 */
   settings.meng_push_settings = {
     channels: [
@@ -214,10 +220,9 @@ friction: 谁都没提刚才那声关门
       },
     ],
     routing: { choices: 'ch_demo', danmaku: 'ch_demo', beats: 'ch_demo' },
-    auto: false,
-    modules: { choices: true, danmaku: true, beats: true },
+    auto: true,
+    modules: { choices: true, moves: false, intro: false },
     choiceCount: 6,
-    danmakuChance: 1,
     panel: { open: true, collapsed: false, tab: 'choices' },
   };
 </script>
@@ -225,12 +230,8 @@ friction: 谁都没提刚才那声关门
 <script type="module">
   import '../index.js';
 
-  // 面板起来后自动跑一轮，模拟「正文刚写完」
-  setTimeout(() => {
-    const root = document.querySelector('#meng-push-host')?.shadowRoot;
-    const btn = root?.querySelector('.mini-btn.primary');
-    if (btn) btn.click();
-  }, 700);
+  // 面板起来后模拟一次「正文刚写完」，走向自动跑一轮
+  setTimeout(() => window.__demoGenerateEnd?.(), 700);
 </script>
 
 </body>

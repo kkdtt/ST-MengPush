@@ -1,7 +1,9 @@
 /**
  * 请求检视。
  *
- * 只做一件事：旁观 ST 发出去的生成请求，把请求体留下来给人看。
+ * 两件事：
+ *   1. 旁观 ST 发出去的生成请求，把请求体留下来给人看；
+ *   2. 报告「主对话这一版正文写完了」——自动任务只认这个信号。
  *
  * 为什么用 hook fetch 而不是别的手段：
  *   · ST 的 generate_interceptor 拿到的是 chat 数组，不含预设拼装、世界书注入、
@@ -95,7 +97,7 @@ export function estimateTokens(text) {
   return Math.round(cjk * 0.7 + other * 0.28);
 }
 
-function capture(url, bodyText) {
+function capture(url, bodyText, self) {
   let body;
   try {
     body = JSON.parse(bodyText);
@@ -103,8 +105,6 @@ function capture(url, bodyText) {
     return;
   }
 
-  const w = hostWindow();
-  const self = (w.__mengPushSelf || 0) > 0;
   const msgs = Array.isArray(body?.messages) ? body.messages : [];
 
   const messages = msgs.map((m) => ({
@@ -159,6 +159,79 @@ function capture(url, bodyText) {
   emit();
 }
 
+/* ---------------- 主对话响应结束 ---------------- */
+
+/**
+ * 订阅「主对话这一版正文写完了」。
+ *
+ * 只认主对话发的请求：推进台自己发的请求带 self 标记（api.js 里 markSelf），
+ * 一律不通知——否则自己跑一次走向，就会被当成「正文写完了」再触发一轮。
+ *
+ * 「写完」= 响应体读到底。流式就是流结束，非流式就是整包收完。
+ * 注意这不是「楼层已落盘」：那时候 ST 还在解析，chat 数组里还没有新消息。
+ */
+const mainDoneListeners = new Set();
+
+export function onMainResponseEnd(fn) {
+  mainDoneListeners.add(fn);
+  return () => mainDoneListeners.delete(fn);
+}
+
+function notifyMainEnd(info) {
+  for (const fn of mainDoneListeners) {
+    try {
+      fn(info);
+    } catch (e) {
+      console.error('[推进台] 主对话完成回调报错', e);
+    }
+  }
+}
+
+/**
+ * 盯着主对话的响应，读完一份副本再通知。
+ *
+ * 必须 clone：原始响应 ST 自己还要读，这里抢着读会把正文吞掉。
+ * 副本读的是同一份字节流，不干扰对方。
+ */
+function watchMainResponse(promise, url) {
+  const startedAt = Date.now();
+
+  promise.then(
+    (resp) => {
+      const base = {
+        url: String(url),
+        ok: resp?.ok !== false,
+        status: Number(resp?.status) || 0,
+      };
+      const finish = () => notifyMainEnd({ ...base, ms: Date.now() - startedAt });
+
+      let copy = null;
+      try {
+        copy = typeof resp?.clone === 'function' ? resp.clone() : null;
+      } catch {
+        copy = null;
+      }
+
+      // 测试环境里的假响应没有 body，直接算读完
+      if (!copy || typeof copy.text !== 'function') {
+        finish();
+        return;
+      }
+      copy.text().then(finish, finish);
+    },
+    (err) => {
+      // 请求挂了也算这一轮结束——自动任务没必要干等
+      notifyMainEnd({
+        url: String(url),
+        ok: false,
+        status: 0,
+        error: err?.message || '网络失败',
+        ms: Date.now() - startedAt,
+      });
+    },
+  );
+}
+
 export function install() {
   if (installed) return;
   // 浏览器里 window === globalThis；测试环境里 window 可能是 mock 对象，
@@ -170,17 +243,33 @@ export function install() {
   const original = w.fetch;
 
   w.fetch = function patchedFetch(input, init) {
+    let url = '';
+    // 注意是 chat-completions（连字符），不是 chat/completions。
+    // 用 indexOf 而不是正则，省得再踩一次转义和字符的坑。
     try {
-      const url = typeof input === 'string' ? input : input?.url || '';
-      // 注意是 chat-completions（连字符），不是 chat/completions。
-      // 用 indexOf 而不是正则，省得再踩一次转义和字符的坑。
-      if (url.indexOf('chat-completions/generate') >= 0 && init && typeof init.body === 'string') {
-        capture(url, init.body);
-      }
+      url = typeof input === 'string' ? input : input?.url || '';
+    } catch {
+      url = '';
+    }
+
+    const isGenerate = url.indexOf('chat-completions/generate') >= 0;
+    // self 在发请求这一刻读：api.js 用 markSelf 把「自己的请求」包起来
+    const self = (w.__mengPushSelf || 0) > 0;
+
+    try {
+      if (isGenerate && init && typeof init.body === 'string') capture(url, init.body, self);
     } catch (e) {
       console.warn('[推进台] 抓请求失败', e);
     }
-    return original.apply(this, arguments);
+
+    const out = original.apply(this, arguments);
+
+    // 主对话的响应读完才算这一版正文到齐了
+    if (isGenerate && !self && out && typeof out.then === 'function') {
+      watchMainResponse(out, url);
+    }
+
+    return out;
   };
 
   console.log('[推进台] 请求检视已挂载');

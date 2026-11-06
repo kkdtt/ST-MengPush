@@ -100,8 +100,11 @@ globalThis.window = {
 let lastRequestBody = null;
 
 globalThis.__dreamCall = 0;
+globalThis.__fetchCalls = 0;
 
 globalThis.fetch = async (url, opt) => {
+  globalThis.__fetchCalls++;
+  if (globalThis.__fetchDelay) await new Promise((r) => setTimeout(r, globalThis.__fetchDelay));
   lastRequestBody = JSON.parse(opt.body);
   // 梦中梦的提示词里有「线筐」，内核里没有——用这个区分两条链路
   const allText = (lastRequestBody.messages || []).map((m) => String(m.content || '')).join('\n');
@@ -814,6 +817,123 @@ const dump = JSON.parse(settingsMod.exportConfig());
 ok('导出有 summary', !!dump.summary && typeof dump.summary.channels === 'number');
 ok('导出不含旧字段', !('enabled' in dump.settings));
 ok('导出字段有顺序', Object.keys(dump.settings)[0] === 'channels', Object.keys(dump.settings).slice(0, 3).join(','));
+
+/* ---------------- 任务拆分与自动触发 ---------------- */
+
+console.log('\n— 任务拆分 —');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 前面的导入导出测试把渠道清空了，先补回来
+settingsMod.patch({
+  channels: [ch],
+  auto: true,
+  autoDelay: 120,
+  modules: { choices: true, moves: false, intro: false },
+});
+
+eq(
+  '自动任务只取勾上的',
+  engine.autoTasks({ modules: { choices: true, moves: true, intro: false } }),
+  ['choices', 'moves'],
+);
+eq('全不勾时为空', engine.autoTasks({ modules: { choices: false, moves: false, intro: false } }), []);
+
+engine.clearHistory();
+await engine.run({ manual: true, tasks: ['choices', 'moves'] });
+
+const afterRun = engine.getState();
+eq('走向回到 idle', afterRun.tasks.choices.status, 'idle');
+eq('反派回到 idle', afterRun.tasks.moves.status, 'idle');
+ok(
+  '两项写进同一层缓存',
+  !!engine.getCached(2) &&
+    Array.isArray(engine.getCached(2).choices) &&
+    Array.isArray(engine.getCached(2).moves),
+);
+eq('往轮同一层只记一条', engine.loadHistory().length, 1);
+
+// 只跑一项时，别的项的结果要留着
+await engine.run({ manual: true, tasks: ['beats'] });
+ok('只跑节拍时走向结果还在', (engine.getCached(2).choices || []).length > 0);
+
+// 同一任务连点两次：旧的那一跑回来不许把状态改回待命
+globalThis.__fetchDelay = 80;
+const firstRun = engine.runOne('choices');
+await sleep(25);
+const secondRun = engine.runOne('choices');
+await sleep(25);
+eq('重跑接管后仍在跑', engine.getState().tasks.choices.status, 'running');
+await Promise.all([firstRun, secondRun]);
+eq('跑完回到 idle', engine.getState().tasks.choices.status, 'idle');
+
+// 取消：控制器被摘掉后，迟到的结果不许再写回来
+const cancelRun = engine.runOne('choices');
+await sleep(20);
+engine.cancel();
+eq('取消后立刻回到 idle', engine.getState().tasks.choices.status, 'idle');
+await cancelRun;
+eq('迟到的结果没把它翻回运行中', engine.getState().tasks.choices.status, 'idle');
+globalThis.__fetchDelay = 0;
+
+console.log('\n— 自动触发 —');
+
+let fired = 0;
+const stopWatch = insp.onMainResponseEnd(() => {
+  fired++;
+});
+
+// 推进台自己发的请求带 self 标记，捕获层不该报
+insp.markSelf(1);
+await globalThis.fetch('/api/backends/chat-completions/generate', {
+  method: 'POST',
+  body: JSON.stringify({ model: 'x', messages: [{ role: 'user', content: 'hi' }] }),
+});
+insp.markSelf(-1);
+eq('自己的请求不算「正文写完」', fired, 0);
+
+// 主对话的请求才报
+await globalThis.fetch('/api/backends/chat-completions/generate', {
+  method: 'POST',
+  body: JSON.stringify({ model: 'y', messages: [{ role: 'user', content: 'hi' }] }),
+});
+eq('主对话响应结束被捕获', fired, 1);
+stopWatch();
+
+// 兜底：捕获层没工作时（非 chat-completions 后端），生成结束事件还能顶一下
+engine.clearHistory();
+const callsFallback = globalThis.__fetchCalls;
+engine.onGenerationEnded();
+await sleep(400);
+ok('兜底路径也能跑起来', globalThis.__fetchCalls > callsFallback);
+
+// 捕获到之后要等新楼层落盘，不能拿上一轮的上下文凑数
+engine.onMainBodyCaptured();
+await sleep(160);
+CHAT.push({ name: '林晚', is_user: false, mes: '<content>她抬起头。</content>' });
+await sleep(700);
+
+const autoState = engine.getState();
+ok('自动任务自己跑起来了', (autoState.result?.choices || []).length > 0);
+eq('落在新楼层上', autoState.result?.messageId, CHAT.length - 1);
+eq('自动也只跑勾上的', autoState.tasks.moves?.status || 'idle', 'idle');
+
+// 同一层楼：换 swipe 不该再花一次请求
+const callsBefore = globalThis.__fetchCalls;
+engine.onMainBodyCaptured();
+await sleep(160);
+CHAT[CHAT.length - 1].mes = '<content>她抬起头，又低下去。</content>';
+await sleep(600);
+eq('同一层不重复请求', globalThis.__fetchCalls, callsBefore);
+eq('楼层号没变', engine.getState().result?.messageId, CHAT.length - 1);
+
+// 换聊天时把排着的那一轮掐掉
+engine.resetAutoGuard();
+engine.onMainBodyCaptured();
+engine.resetAutoGuard();
+const callsIdle = globalThis.__fetchCalls;
+await sleep(500);
+eq('重置后不再补跑', globalThis.__fetchCalls, callsIdle);
 
 console.log(`\n${pass} 通过 / ${fail} 失败\n`);
 process.exit(fail ? 1 : 0);

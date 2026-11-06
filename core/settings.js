@@ -1,6 +1,6 @@
-import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.20.1';
-import { PROMPT_FIELDS } from './prompts.js?v=2.20.1';
-import { VERSION } from './version.js?v=2.20.1';
+import { readExtensionSettings, writeExtensionSettings } from './ctx.js?v=2.21.0';
+import { PROMPT_FIELDS } from './prompts.js?v=2.21.0';
+import { VERSION } from './version.js?v=2.21.0';
 
 /** extension_settings 里的键名。加前缀避免和其它扩展撞车。 */
 const SETTINGS_KEY = 'meng_push_settings';
@@ -20,7 +20,7 @@ export function defaults() {
       danmaku: false,
       /** 节拍表只在手动点「节拍」时生成，不参与自动流程 */
       beats: false,
-      /** 反派行动与走向互斥，同时开会多跑一次 */
+      /** 反派行动跟走向各自独立：勾了就是每轮多一条请求 */
       moves: false,
       /** 新人介绍：每轮自动抽一个，不想要就关掉 */
       intro: false,

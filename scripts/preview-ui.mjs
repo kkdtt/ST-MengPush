@@ -105,8 +105,12 @@ const host = w.document.getElementById('meng-push-host');
 const root = host?.shadowRoot;
 if (!root) throw new Error('面板没挂载');
 
-// 先跑一轮，让走向页有内容
-root.querySelectorAll('.icon-btn')[0]?.click();
+// 先跑一轮，让走向页有内容。
+// 顶栏那个总刷新按钮已经撤掉了，这里点「走向」页自己的按钮。
+const runBtn = [...root.querySelectorAll('.mini-btn')].find(
+  (b) => /生成|重跑|重试/.test(b.textContent || ''),
+);
+runBtn?.click();
 await new Promise((r) => setTimeout(r, 600));
 
 const clean = (html) =>
